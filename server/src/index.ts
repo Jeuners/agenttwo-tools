@@ -6,12 +6,13 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as dbmod from "./db.js";
 import { streamChat, type OllamaOptions } from "./ollama.js";
-import { transcribeAudio, synthesizeSpeech } from "./voice.js";
+import { transcribeAudio, synthesizeSpeech, MAX_AUDIO_BYTES } from "./voice.js";
 import {
   streamOpenRouter,
   listOpenRouterModels,
   getOpenRouterKey,
 } from "./openrouter.js";
+import { ALLOWED_ORIGINS, isOriginAllowed, createRateLimiter } from "./security.js";
 
 // simple .env loader (project root)
 try {
@@ -29,8 +30,22 @@ try {
 const PORT = Number(process.env.PORT ?? 8787);
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 
-const app = Fastify({ logger: false, bodyLimit: 32 * 1024 * 1024 });
-await app.register(cors, { origin: true });
+const app = Fastify({ logger: true, bodyLimit: MAX_AUDIO_BYTES });
+
+// origin:true würde jede fremde Origin reflektieren — damit könnte jede vom
+// Nutzer geöffnete Webseite die komplette Chat-Historie auslesen.
+await app.register(cors, { origin: [...ALLOWED_ORIGINS] });
+
+// Zweite Verteidigungslinie: CORS schützt nur Browser-Clients, die den
+// Response abwarten. Ein fremder Origin wird hier hart abgewiesen.
+app.addHook("onRequest", async (req, reply) => {
+  if (!isOriginAllowed(req.headers.origin)) {
+    return reply.code(403).send({ error: "origin not allowed" });
+  }
+});
+
+const sttLimiter = createRateLimiter(10, 60_000);
+const ttsLimiter = createRateLimiter(30, 60_000);
 
 app.addContentTypeParser(
   ["application/octet-stream", "audio/*", "video/*"],
@@ -60,7 +75,8 @@ app.get("/api/model", async () => {
       capabilities: data.capabilities ?? [],
     };
   } catch (err) {
-    return { ok: false, error: String(err) };
+    app.log.error({ err }, "Ollama /api/show fehlgeschlagen");
+    return { ok: false, error: "Ollama nicht erreichbar" };
   }
 });
 
@@ -81,6 +97,9 @@ app.delete("/api/sessions/:id", async (req) => {
 
 // --- Voice ---
 app.post("/api/stt", async (req, reply) => {
+  if (!sttLimiter(req.ip)) {
+    return reply.code(429).send({ ok: false, error: "Zu viele Anfragen" });
+  }
   const audio = req.body as Buffer;
   if (!Buffer.isBuffer(audio) || audio.length === 0) {
     return reply.code(400).send({ ok: false, error: "Kein Audio empfangen" });
@@ -89,26 +108,35 @@ app.post("/api/stt", async (req, reply) => {
     const text = await transcribeAudio(audio);
     return { ok: true, text };
   } catch (err) {
-    app.log.error(err);
+    // Details nur ins Server-Log: whisper/ffmpeg-Fehler enthalten lokale Pfade.
+    app.log.error({ err }, "STT fehlgeschlagen");
     return reply
       .code(500)
-      .send({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      .send({ ok: false, error: "Transkription fehlgeschlagen (Details im Server-Log)" });
   }
 });
 
+const TTS_MAX_CHARS = 8000;
+
 app.post("/api/tts", async (req, reply) => {
+  if (!ttsLimiter(req.ip)) {
+    return reply.code(429).send({ error: "Zu viele Anfragen" });
+  }
   const { text } = (req.body ?? {}) as { text?: string };
   if (!text || !text.trim()) {
     return reply.code(400).send({ error: "text fehlt" });
+  }
+  if (text.length > TTS_MAX_CHARS) {
+    return reply.code(413).send({ error: `Text länger als ${TTS_MAX_CHARS} Zeichen` });
   }
   try {
     const wav = await synthesizeSpeech(text);
     reply.header("Content-Type", "audio/wav").send(wav);
   } catch (err) {
-    app.log.error(err);
+    app.log.error({ err }, "TTS fehlgeschlagen");
     return reply
       .code(500)
-      .send({ error: err instanceof Error ? err.message : String(err) });
+      .send({ error: "Sprachausgabe fehlgeschlagen (Details im Server-Log)" });
   }
 });
 
@@ -120,7 +148,8 @@ app.get("/api/openrouter/models", async () => {
   try {
     return { ok: true, models: await listOpenRouterModels() };
   } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    app.log.error({ err }, "OpenRouter-Modellliste fehlgeschlagen");
+    return { ok: false, error: "Modellliste nicht abrufbar" };
   }
 });
 
@@ -290,6 +319,16 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
 const server = app.server;
 server.on("upgrade", (req, socket, head) => {
   const url = new URL(req.url ?? "", "http://localhost");
+
+  // WebSockets unterliegen nicht der Same-Origin-Policy: ohne diese Prüfung
+  // könnte jede fremde Seite eine Verbindung aufbauen, Chats senden, Antworten
+  // mitlesen und Kosten auf dem OpenRouter-Key erzeugen (CSWSH).
+  if (!isOriginAllowed(req.headers.origin)) {
+    socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
   if (url.pathname === "/ws") {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws, req));
   } else {

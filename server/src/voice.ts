@@ -14,7 +14,48 @@ const PIPER_MODEL =
   path.join(import.meta.dirname, "..", "voices", "de_DE-thorsten-high.onnx");
 const WHISPER_LANG = process.env.WHISPER_LANG ?? "de";
 
+/**
+ * Obergrenze für eine Aufnahme — schützt vor überlangen Whisper-Läufen.
+ * Wird in index.ts als bodyLimit gespiegelt, damit beide Grenzen übereinstimmen.
+ * 8 MB entsprechen rund 35 Minuten Opus-Audio.
+ */
+export const MAX_AUDIO_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Erkennt das Containerformat anhand der Magic Bytes und gibt den passenden
+ * ffmpeg-Demuxer zurück.
+ *
+ * Ohne explizites -f rät ffmpeg das Format selbst und kann dabei bei Demuxern
+ * wie concat oder HLS landen, die ihrerseits auf Pfade und URLs im Dateiinhalt
+ * zugreifen. Da der Body von außen kommt, wird das Format hier festgenagelt.
+ */
+function detectAudioFormat(buf: Buffer): string | null {
+  if (buf.length < 12) return null;
+  if (buf.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))) {
+    return "matroska"; // webm (Chrome/Firefox MediaRecorder)
+  }
+  if (buf.subarray(0, 4).toString("latin1") === "OggS") return "ogg";
+  if (buf.subarray(4, 8).toString("latin1") === "ftyp") {
+    return "mov,mp4,m4a,3gp,3g2,mj2"; // Safari MediaRecorder
+  }
+  if (
+    buf.subarray(0, 4).toString("latin1") === "RIFF" &&
+    buf.subarray(8, 12).toString("latin1") === "WAVE"
+  ) {
+    return "wav";
+  }
+  return null;
+}
+
 export async function transcribeAudio(input: Buffer): Promise<string> {
+  if (input.length > MAX_AUDIO_BYTES) {
+    throw new Error("Aufnahme zu groß");
+  }
+  const format = detectAudioFormat(input);
+  if (!format) {
+    throw new Error("Nicht unterstütztes Audioformat");
+  }
+
   const dir = await mkdtemp(path.join(tmpdir(), "oxa-voice-"));
   const rawPath = path.join(dir, "in.raw");
   const wavPath = path.join(dir, "in.wav");
@@ -22,7 +63,16 @@ export async function transcribeAudio(input: Buffer): Promise<string> {
     await writeFile(rawPath, input);
     await pExecFile(
       "ffmpeg",
-      ["-y", "-i", rawPath, "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", wavPath],
+      [
+        "-y",
+        "-protocol_whitelist", "file",  // keine http/hls/concat-Auflösung
+        "-f", format,                   // Format nicht raten lassen
+        "-i", rawPath,
+        "-ar", "16000",
+        "-ac", "1",
+        "-c:a", "pcm_s16le",
+        wavPath,
+      ],
       { timeout: 30_000 },
     );
     const { stdout } = await pExecFile(

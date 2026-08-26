@@ -70,6 +70,29 @@ Weitere optionale Variablen mit ihren Defaults:
 | `WHISPER_MODEL`      | `~/whisper-models/ggml-large-v3-turbo.bin`       |
 | `WHISPER_LANG`       | `de`                                             |
 | `PIPER_MODEL`        | `server/voices/de_DE-thorsten-high.onnx`         |
+| `ALLOWED_ORIGINS`    | (leer — siehe Sicherheit)                        |
+
+## Sicherheit
+
+Der Server hat **keine Authentifizierung** und lauscht deshalb bewusst nur auf
+`127.0.0.1`. Das allein genügt aber nicht: Eine beliebige Webseite, die im
+Browser geöffnet ist, kann `localhost` per `fetch()` oder WebSocket erreichen.
+Deshalb prüfen sowohl die HTTP-Endpunkte als auch der WebSocket-Handshake die
+`Origin` gegen eine Allowlist (`server/src/security.ts`) — Standard sind
+`localhost`/`127.0.0.1` auf Port 5173 und 8787.
+
+Läuft das Frontend woanders, die Origin ergänzen:
+
+```bash
+ALLOWED_ORIGINS=http://192.168.1.50:5173
+```
+
+Weitere Maßnahmen: Rate-Limits auf `/api/stt` (10/min) und `/api/tts` (30/min),
+Format-Whitelist per Magic Bytes vor dem `ffmpeg`-Aufruf, und Fehlerdetails
+landen im Server-Log statt in der HTTP-Antwort.
+
+Für externen Zugriff reicht ein Reverse-Proxy **nicht** — davor gehört eine
+echte Authentifizierung.
 
 ## Entwicklung
 
@@ -97,5 +120,5 @@ npm run typecheck
 npm start            # baut das Frontend und startet den Server
 ```
 
-Der Server bindet bewusst nur an `127.0.0.1` — für externen Zugriff einen
-Reverse-Proxy davorschalten.
+Der Server bindet nur an `127.0.0.1`. Zum Aussetzen ins Netz siehe
+[Sicherheit](#sicherheit).

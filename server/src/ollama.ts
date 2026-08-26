@@ -11,6 +11,9 @@ export interface StreamCallbacks {
   onDone(): void;
 }
 
+/** Muss zum OLLAMA_URL in index.ts passen — vorher war der Host hier hartkodiert. */
+const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
+
 interface ChatChunk {
   message?: { content?: string; thinking?: string };
   done?: boolean;
@@ -38,7 +41,7 @@ export async function streamChat(
     },
   };
 
-  const res = await fetch("http://localhost:11434/api/chat", {
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
