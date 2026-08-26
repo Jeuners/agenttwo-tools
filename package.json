@@ -12,5 +12,8 @@
     "dev:web": "npm run dev --workspace web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "start": "npm run build --workspace web && npm start --workspace server"
+  },
+  "engines": {
+    "node": ">=22.5.0"
   }
 }

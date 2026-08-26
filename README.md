@@ -17,16 +17,29 @@ npm-Workspace mit zwei Paketen:
 
 ## Voraussetzungen
 
-- Node.js 20+
+- **Node.js 22+** — `server/src/db.ts` nutzt das eingebaute `node:sqlite`,
+  das es unter Node 20 noch nicht gibt. Unter Node 22 erscheint beim Start
+  eine `ExperimentalWarning`; ab Node 24 ist das Modul stabil.
 - [Ollama](https://ollama.com) mit einem Qwen3-Modell (`ollama pull qwen3.5`)
 - `ffmpeg` im `PATH`
 - `whisper-cli` im `PATH` (whisper.cpp) inklusive Modell
-- `piper` im `PATH`
+- Piper als **Python-Modul** — der Server ruft `python3 -m piper` auf,
+  nicht das gleichnamige Homebrew-Binary
 
 Unter macOS:
 
 ```bash
-brew install ffmpeg whisper-cpp piper
+brew install ffmpeg whisper-cpp
+pip3 install piper-tts
+```
+
+Prüfen, ob alles bereitsteht:
+
+```bash
+ffmpeg -version >/dev/null 2>&1 && echo "ffmpeg OK"
+whisper-cli --help >/dev/null 2>&1 && echo "whisper-cli OK"
+python3 -m piper --help >/dev/null 2>&1 && echo "piper OK"
+node -e "require('node:sqlite')" 2>/dev/null && echo "node:sqlite OK"
 ```
 
 ### Whisper-Modell
