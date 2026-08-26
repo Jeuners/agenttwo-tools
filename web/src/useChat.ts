@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatSocket } from "./socket";
-import type { ChatOptions, Message, Session } from "./types";
+import type { ChatOptions, Message, Session , ToolEvent } from "./types";
 
 export type ConnStatus = "connecting" | "open" | "closed";
 export interface ModelInfo {
@@ -19,6 +19,7 @@ const SYSTEM_KEY = "oxagenttwo.systemPrompt";
 function loadOptions(): ChatOptions {
   const defaults: ChatOptions = {
     think: true,
+    tools: true,
     temperature: 0.7,
     numPredict: 2048,
     provider: "ollama",
@@ -40,6 +41,7 @@ export function useChat() {
   );
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
+  const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
   const [options, setOptionsState] = useState<ChatOptions>(loadOptions);
   const [systemPrompt, setSystemPromptState] = useState(
     () => localStorage.getItem(SYSTEM_KEY) ?? "",
@@ -79,6 +81,30 @@ export function useChat() {
             m.id === data.messageId ? { ...m, content: m.content + text } : m,
           ),
         );
+      } else if (t === "tool-call") {
+        setToolEvents((prev) => ({
+          ...prev,
+          [data.messageId as string]: [
+            ...(prev[data.messageId as string] ?? []),
+            { name: data.name as string, args: data.args as string },
+          ],
+        }));
+      } else if (t === "tool-result") {
+        setToolEvents((prev) => {
+          const list = prev[data.messageId as string] ?? [];
+          // Ergebnis dem letzten offenen Aufruf desselben Werkzeugs zuordnen.
+          const idx = [...list].reverse().findIndex(
+            (e) => e.name === data.name && e.ok === undefined,
+          );
+          if (idx === -1) return prev;
+          const realIdx = list.length - 1 - idx;
+          const updated = list.map((e, i) =>
+            i === realIdx
+              ? { ...e, ok: data.ok as boolean, durationMs: data.durationMs as number }
+              : e,
+          );
+          return { ...prev, [data.messageId as string]: updated };
+        });
       } else if (t === "done" || t === "error") {
         streamingRef.current = false;
         setStreaming(false);
@@ -185,6 +211,7 @@ export function useChat() {
     setActiveId,
     messages,
     streaming,
+    toolEvents,
     sendMessage,
     abort,
     newSession,

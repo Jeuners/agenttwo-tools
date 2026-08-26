@@ -2,7 +2,7 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import type { Message } from "../types";
+import type { Message, ToolEvent } from "../types";
 
 /**
  * Leitet den MIME-Typ aus den ersten base64-Zeichen ab. "image/*" ist als
@@ -27,7 +27,13 @@ function imagesOf(message: Message): string[] {
   }
 }
 
-export function ChatMessage({ message }: { message: Message }) {
+export function ChatMessage({
+  message,
+  toolEvents = [],
+}: {
+  message: Message;
+  toolEvents?: ToolEvent[];
+}) {
   const [showThinking, setShowThinking] = useState(false);
   const isUser = message.role === "user";
   const images = imagesOf(message);
@@ -49,6 +55,23 @@ export function ChatMessage({ message }: { message: Message }) {
           {showThinking && (
             <pre className="thinking-body">{message.thinking}</pre>
           )}
+        </div>
+      )}
+
+      {toolEvents.length > 0 && (
+        <div className="tool-events">
+          {toolEvents.map((e, i) => (
+            <div className={`tool-event ${e.ok === false ? "failed" : ""}`} key={i}>
+              <span className="tool-icon">
+                {e.ok === undefined ? "⋯" : e.ok ? "✓" : "✗"}
+              </span>
+              <code>{e.name}</code>
+              <span className="tool-args" title={e.args}>{e.args}</span>
+              {e.durationMs !== undefined && (
+                <span className="tool-time">{e.durationMs} ms</span>
+              )}
+            </div>
+          ))}
         </div>
       )}
 

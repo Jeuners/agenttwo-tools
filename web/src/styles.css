@@ -622,3 +622,47 @@ body {
   border-radius: 8px;
   border: 1px solid var(--border, #30363d);
 }
+
+/* --- Werkzeug-Aufrufe --- */
+.tool-events {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 10px;
+}
+
+.tool-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85em;
+  padding: 4px 10px;
+  border-left: 2px solid var(--accent, #3fb950);
+  background: rgba(63, 185, 80, 0.06);
+  border-radius: 0 4px 4px 0;
+  color: var(--fg-dim, #8b949e);
+}
+
+.tool-event.failed {
+  border-left-color: #f85149;
+  background: rgba(248, 81, 73, 0.06);
+}
+
+.tool-event code {
+  color: var(--fg, #c9d1d9);
+  font-weight: 600;
+}
+
+.tool-args {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.tool-time {
+  flex: 0 0 auto;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}

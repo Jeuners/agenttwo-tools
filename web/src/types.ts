@@ -15,8 +15,17 @@ export interface Message {
   created_at: number;
 }
 
+/** Werkzeugaufruf während einer Antwort. Nur zur Laufzeit, nicht gespeichert. */
+export interface ToolEvent {
+  name: string;
+  args: string;
+  ok?: boolean;
+  durationMs?: number;
+}
+
 export interface ChatOptions {
   think: boolean;
+  tools: boolean;
   temperature: number;
   numPredict: number;
   provider: "ollama" | "openrouter";

@@ -129,6 +129,14 @@ export default function App() {
     wasStreamingRef.current = chat.streaming;
   }, [chat.streaming, voiceMode, voice]);
 
+  const [toolNames, setToolNames] = useState<string[]>([]);
+  useEffect(() => {
+    fetch("/api/tools")
+      .then((r) => r.json())
+      .then((d: { tools?: string[] }) => setToolNames(d.tools ?? []))
+      .catch(() => setToolNames([]));
+  }, []);
+
   const handleSend = useCallback(
     (text: string, images: string[] = []) => {
       voice.cancelSpeech();
@@ -255,6 +263,16 @@ export default function App() {
               <span>Thinking-Mode (Modell denkt sichtbar vor der Antwort)</span>
             </label>
             )}
+            <label className="setting-row checkbox">
+              <input
+                type="checkbox"
+                checked={chat.options.tools}
+                onChange={(e) => chat.setOptions({ tools: e.target.checked })}
+              />
+              <span>
+                Werkzeuge ({toolNames.length > 0 ? toolNames.join(", ") : "keine geladen"})
+              </span>
+            </label>
             <label className="setting-row">
               <span>Temperature: {chat.options.temperature.toFixed(2)}</span>
               <input
@@ -307,7 +325,7 @@ export default function App() {
             </div>
           )}
           {chat.messages.map((m) => (
-            <ChatMessage key={m.id} message={m} />
+            <ChatMessage key={m.id} message={m} toolEvents={chat.toolEvents[m.id]} />
           ))}
         </div>
 

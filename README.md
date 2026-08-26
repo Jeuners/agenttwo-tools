@@ -1,7 +1,7 @@
 # agenttwo-tools
 
 > Fork von [agenttwo](https://github.com/Jeuners/agenttwo). Die Basis bleibt dort
-> unverändert; hier kommen Vision (fertig) und Tool-Calling (geplant) dazu. Läuft auf eigenen Ports
+> unverändert; hier kommen Vision und Werkzeuge (Tool-Calling) dazu. Läuft auf eigenen Ports
 > (Backend 8788, Frontend 5174), damit beide Projekte parallel laufen können.
 > Fixes aus der Basis lassen sich per `git cherry-pick` aus dem Remote
 > `upstream` übernehmen.
@@ -114,6 +114,45 @@ Ob das eingestellte Modell Bilder kann, verrät:
 curl -s http://localhost:11434/api/show -d '{"name":"qwen3.5:latest"}' \
   | python3 -c "import json,sys; print(json.load(sys.stdin)['capabilities'])"
 ```
+
+## Werkzeuge (Tool-Calling)
+
+`qwen3.5` meldet die Fähigkeit `tools`. Der Server schickt bei jeder Anfrage
+eine Werkzeugliste mit; will das Modell eines benutzen, wird es ausgeführt und
+das Ergebnis zurückgereicht, bis eine Antwort ohne Werkzeugwunsch entsteht
+(maximal `MAX_TOOL_ROUNDS` = 5 Runden, je 15 s Zeitlimit). Abschalten lässt
+sich das in den Einstellungen.
+
+| Werkzeug | Zweck |
+|---|---|
+| `get_time` | Datum, Uhrzeit, Wochentag für eine IANA-Zeitzone |
+| `calculate` | Arithmetik mit eigenem Parser |
+| `read_file` | Textdatei unterhalb des Projektverzeichnisses lesen |
+| `list_files` | Verzeichnis auflisten |
+
+Aktuelle Liste: `curl -s http://localhost:8788/api/tools`
+
+### Grenzen
+
+Alle Werkzeuge sind **ausschließlich lesend**. Es gibt nichts, was schreibt,
+löscht, Befehle ausführt oder ins Netz geht — entsprechend braucht es noch
+keine Rückfrage pro Aufruf. Das Feld `requiresConfirmation` in
+`tools/types.ts` ist bereits vorgesehen, damit die Bestätigungspflicht nicht
+nachträglich eingezogen werden muss, sobald ein schreibendes Werkzeug dazukommt.
+
+Der Dateizugriff liegt in einer Sandbox: Jeder Pfad wird über `realpath`
+aufgelöst (löst auch Symlinks auf) und muss danach unterhalb der Wurzel liegen,
+sonst wird abgelehnt. Die Wurzel ist standardmäßig das Projektverzeichnis und
+über `TOOLS_ROOT` einstellbar. `.env`, `.git/` und Schlüsseldateien sind auch
+innerhalb der Wurzel gesperrt.
+
+`calculate` benutzt bewusst **kein** `eval` oder `new Function`: der Ausdruck
+stammt aus einer Modellantwort, die von Nutzereingaben beeinflusst wird. Der
+Parser in `tools/calculate.ts` kennt nur Zahlen und Grundrechenarten.
+
+Werkzeugaufrufe werden in der Oberfläche über der Antwort angezeigt. Sie leben
+nur im Browser-Zustand und sind nach einem Neuladen weg — im Gegensatz zu
+Bildern, die in der Datenbank landen.
 
 ## Sicherheit
 

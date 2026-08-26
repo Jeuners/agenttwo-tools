@@ -14,6 +14,7 @@ import {
 } from "./openrouter.js";
 import { ALLOWED_ORIGINS, isOriginAllowed, createRateLimiter } from "./security.js";
 import { validateImages, ImageError, MAX_WS_PAYLOAD } from "./images.js";
+import { toolNames } from "./tools/index.js";
 
 // simple .env loader (project root)
 try {
@@ -55,6 +56,8 @@ app.addContentTypeParser(
 );
 
 app.get("/api/health", async () => ({ ok: true }));
+
+app.get("/api/tools", async () => ({ ok: true, tools: toolNames() }));
 
 app.get("/api/model", async () => {
   try {
@@ -161,6 +164,7 @@ interface ChatOptionsPayload {
   numPredict: number;
   provider?: string;
   openrouterModel?: string;
+  tools?: boolean;
 }
 
 function parseOptions(raw: unknown): OllamaOptions & {
@@ -171,6 +175,7 @@ function parseOptions(raw: unknown): OllamaOptions & {
   return {
     model: process.env.MODEL ?? "qwen3.5:latest",
     think: o.think !== false,
+    tools: o.tools !== false,
     temperature: clamp(Number(o.temperature ?? 0.7), 0, 2),
     numPredict: Math.min(Math.max(Number(o.numPredict ?? 2048), 64), 16384),
     provider: o.provider === "openrouter" ? "openrouter" : "ollama",
@@ -275,6 +280,23 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
         );
       },
       onDone() {},
+      onToolCall(name: string, args: Record<string, unknown>) {
+        socket.send(
+          JSON.stringify({
+            type: "tool-call",
+            messageId: assistantRow.id,
+            name,
+            // Argumente gekürzt: ein Dateiinhalt als Argument würde den
+            // Client sonst mit Daten fluten.
+            args: JSON.stringify(args).slice(0, 300),
+          }),
+        );
+      },
+      onToolResult(name: string, ok: boolean, durationMs: number) {
+        socket.send(
+          JSON.stringify({ type: "tool-result", messageId: assistantRow.id, name, ok, durationMs }),
+        );
+      },
     };
 
     try {
