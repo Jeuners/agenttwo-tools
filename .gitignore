@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.sqlite
+*.sqlite-*
+data.sqlite*
+
+# Piper-Stimmmodell (109 MB) — siehe README, wird lokal heruntergeladen
+server/voices/*.onnx
