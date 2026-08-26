@@ -18,10 +18,12 @@ function tokenize(input: string): Token[] {
   while (i < input.length) {
     const c = input[i];
     if (/\s/.test(c)) { i++; continue; }
-    if (/[0-9.]/.test(c)) {
+    if (/[0-9.,]/.test(c)) {
       let num = "";
-      while (i < input.length && /[0-9._]/.test(input[i])) num += input[i++];
-      const value = Number(num.replace(/_/g, ""));
+      while (i < input.length && /[0-9._,]/.test(input[i])) num += input[i++];
+      // Das Modell rechnet mit deutschen Beträgen und schreibt "87,50".
+      // Komma gilt deshalb als Dezimaltrenner.
+      const value = Number(num.replace(/_/g, "").replace(",", "."));
       if (!Number.isFinite(value)) throw new ToolError(`Ungültige Zahl: ${num}`);
       tokens.push({ kind: "num", value });
       continue;
@@ -95,7 +97,8 @@ export const calculateTool: Tool = {
   name: "calculate",
   description:
     "Berechnet einen arithmetischen Ausdruck exakt. Nutze dies für jede " +
-    "Rechnung statt selbst zu rechnen. Erlaubt: + - * / % ^ und Klammern.",
+    "Rechnung statt selbst zu rechnen. Erlaubt: + - * / % ^ und Klammern. " +
+    "Dezimaltrenner darf Punkt oder Komma sein (87.50 wie 87,50).",
   parameters: {
     type: "object",
     properties: {

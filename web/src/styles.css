@@ -545,6 +545,14 @@ body {
   outline-offset: -4px;
 }
 
+/* .composer ist ursprünglich eine Flex-Zeile. Die Anhang-Vorschau gehört
+   darüber, deshalb wird der Container zur Spalte und .composer-row übernimmt
+   die frühere Zeilen-Rolle. */
+.composer {
+  flex-direction: column;
+  align-items: stretch;
+}
+
 .composer-row {
   display: flex;
   align-items: flex-end;
