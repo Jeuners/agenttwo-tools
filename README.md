@@ -1,7 +1,7 @@
 # agenttwo-tools
 
 > Fork von [agenttwo](https://github.com/Jeuners/agenttwo). Die Basis bleibt dort
-> unverändert; hier kommen Tool-Calling und Vision dazu. Läuft auf eigenen Ports
+> unverändert; hier kommen Vision (fertig) und Tool-Calling (geplant) dazu. Läuft auf eigenen Ports
 > (Backend 8788, Frontend 5174), damit beide Projekte parallel laufen können.
 > Fixes aus der Basis lassen sich per `git cherry-pick` aus dem Remote
 > `upstream` übernehmen.
@@ -90,6 +90,30 @@ Weitere optionale Variablen mit ihren Defaults:
 | `WHISPER_LANG`       | `de`                                             |
 | `PIPER_MODEL`        | `server/voices/de_DE-thorsten-high.onnx`         |
 | `ALLOWED_ORIGINS`    | (leer — siehe Sicherheit)                        |
+
+## Bilder (Vision)
+
+`qwen3.5` bringt die Fähigkeit `vision` mit, deshalb versteht der Chat Bilder.
+Anhängen geht auf drei Wegen: Button 🖼 im Composer, Einfügen aus der
+Zwischenablage (⌘V) oder Drag & Drop auf die Eingabezeile. Eine Nachricht darf
+auch nur aus einem Bild bestehen.
+
+Bilder werden zusammen mit der Nachricht in der SQLite-Datei abgelegt und bei
+Folgefragen erneut mitgeschickt, sodass Rückfragen zum selben Bild funktionieren.
+Für Ollama gehen sie als `images: [base64]` raus, für OpenRouter im
+OpenAI-Format als `image_url` mit data-URL — der MIME-Typ wird dabei aus den
+Magic Bytes bestimmt.
+
+Grenzen (`server/src/images.ts`): maximal 4 Bilder pro Nachricht, je 6 MB,
+nur PNG, JPEG, GIF und WebP. Der Typ wird an den Magic Bytes geprüft, nicht am
+angegebenen Dateinamen; der WebSocket hat dafür ein Payload-Limit von 32 MB.
+
+Ob das eingestellte Modell Bilder kann, verrät:
+
+```bash
+curl -s http://localhost:11434/api/show -d '{"name":"qwen3.5:latest"}' \
+  | python3 -c "import json,sys; print(json.load(sys.stdin)['capabilities'])"
+```
 
 ## Sicherheit
 

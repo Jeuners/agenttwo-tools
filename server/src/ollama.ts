@@ -20,8 +20,15 @@ interface ChatChunk {
   error?: string;
 }
 
+export interface ChatMessage {
+  role: string;
+  content: string;
+  /** base64 ohne data:-Präfix; Ollama erwartet genau dieses Format. */
+  images?: string[];
+}
+
 export async function streamChat(
-  history: { role: string; content: string }[],
+  history: ChatMessage[],
   systemPrompt: string | undefined,
   opts: OllamaOptions,
   cb: StreamCallbacks,
@@ -31,7 +38,11 @@ export async function streamChat(
     model: opts.model,
     messages: [
       ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-      ...history,
+      ...history.map((m) =>
+        m.images?.length
+          ? { role: m.role, content: m.content, images: m.images }
+          : { role: m.role, content: m.content },
+      ),
     ],
     stream: true,
     think: opts.think,

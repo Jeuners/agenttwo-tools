@@ -13,6 +13,7 @@ import {
   getOpenRouterKey,
 } from "./openrouter.js";
 import { ALLOWED_ORIGINS, isOriginAllowed, createRateLimiter } from "./security.js";
+import { validateImages, ImageError, MAX_WS_PAYLOAD } from "./images.js";
 
 // simple .env loader (project root)
 try {
@@ -186,7 +187,7 @@ function clamp(v: number, min: number, max: number) {
   return Math.min(Math.max(v, min), max);
 }
 
-const wss = new WebSocketServer({ noServer: true });
+const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_WS_PAYLOAD });
 
 function broadcast(data: unknown) {
   for (const client of wss.clients) {
@@ -215,16 +216,31 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
 
     const sessionId = String(msg.sessionId ?? "");
     const content = String(msg.content ?? "").trim();
-    if (!sessionId || !content) {
+
+    let images: string[];
+    try {
+      images = validateImages(msg.images).map((i) => i.base64);
+    } catch (err) {
+      socket.send(
+        JSON.stringify({
+          type: "error",
+          error: err instanceof ImageError ? err.message : "Bild abgelehnt",
+        }),
+      );
+      return;
+    }
+
+    // Ein Bild allein ist eine gültige Anfrage — Text darf dann fehlen.
+    if (!sessionId || (!content && images.length === 0)) {
       socket.send(JSON.stringify({ type: "error", error: "sessionId/content fehlt" }));
       return;
     }
 
     let session = dbmod.getSession(sessionId);
     if (!session) session = dbmod.createSession();
-    dbmod.renameSessionIfDefault(session.id, content);
+    dbmod.renameSessionIfDefault(session.id, content || "Bild");
 
-    const userMsg = dbmod.insertMessage(session.id, "user", content);
+    const userMsg = dbmod.insertMessage(session.id, "user", content, null, images);
     socket.send(JSON.stringify({ type: "user-message", message: userMsg }));
     broadcast({ type: "sessions-changed" });
 
@@ -232,7 +248,12 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
     const history = dbmod
       .listMessages(session.id)
       .slice(-24)
-      .map((m) => ({ role: m.role, content: m.content }));
+      .map((m) => {
+        const imgs = dbmod.parseImages(m);
+        return imgs.length
+          ? { role: m.role, content: m.content, images: imgs }
+          : { role: m.role, content: m.content };
+      });
 
     const assistantRow = dbmod.insertMessage(session.id, "assistant", "");
     socket.send(JSON.stringify({ type: "assistant-start", message: assistantRow }));
@@ -337,5 +358,5 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 app.listen({ port: PORT, host: "127.0.0.1" }, () => {
-  console.log(`[oxagenttwo] Server läuft auf http://127.0.0.1:${PORT}`);
+  console.log(`[agenttwo-tools] Server läuft auf http://127.0.0.1:${PORT}`);
 });

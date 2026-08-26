@@ -1,3 +1,5 @@
+import { mimeFromBase64 } from "./images.js";
+
 export interface OpenRouterOptions {
   model: string;
   temperature: number;
@@ -37,8 +39,26 @@ export async function listOpenRouterModels(): Promise<
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * OpenRouter folgt dem OpenAI-Schema: Bilder stecken als data-URL in einem
+ * content-Array, nicht in einem eigenen images-Feld wie bei Ollama.
+ */
+function toOpenAIMessage(m: { role: string; content: string; images?: string[] }) {
+  if (!m.images?.length) return { role: m.role, content: m.content };
+  return {
+    role: m.role,
+    content: [
+      ...(m.content ? [{ type: "text", text: m.content }] : []),
+      ...m.images.map((b64) => ({
+        type: "image_url",
+        image_url: { url: `data:${mimeFromBase64(b64)};base64,${b64}` },
+      })),
+    ],
+  };
+}
+
 export async function streamOpenRouter(
-  history: { role: string; content: string }[],
+  history: { role: string; content: string; images?: string[] }[],
   systemPrompt: string | undefined,
   opts: OpenRouterOptions,
   apiKey: string,
@@ -58,7 +78,7 @@ export async function streamOpenRouter(
       stream: true,
       messages: [
         ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
-        ...history,
+        ...history.map(toOpenAIMessage),
       ],
       temperature: opts.temperature,
       max_tokens: opts.numPredict,

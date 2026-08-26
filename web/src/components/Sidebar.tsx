@@ -13,7 +13,7 @@ export function Sidebar({ sessions, activeId, onSelect, onNew, onDelete }: Props
     <aside className="sidebar">
       <div className="sidebar-header">
         <div className="brand">
-          <span className="brand-prompt">▸</span> oxagenttwo
+          <span className="brand-prompt">▸</span> agenttwo-tools
         </div>
         <button className="btn-new" onClick={onNew}>
           + Neuer Chat

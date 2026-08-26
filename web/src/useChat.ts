@@ -138,14 +138,18 @@ export function useChat() {
   }, []);
 
   const sendMessage = useCallback(
-    (content: string) => {
-      if (!content.trim() || streamingRef.current || !activeId) return;
+    (content: string, images: string[] = []) => {
+      // Ein Bild ohne Text ist eine gültige Anfrage.
+      if ((!content.trim() && images.length === 0) || streamingRef.current || !activeId) {
+        return;
+      }
       streamingRef.current = true;
       setStreaming(true);
       socketRef.current?.send({
         type: "chat",
         sessionId: activeId,
         content,
+        images,
         options,
         systemPrompt,
       });

@@ -23,6 +23,14 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
 `);
 
+// Bestehende Datenbanken aus agenttwo kennen die Spalte noch nicht.
+const hasImages = (
+  db.prepare("PRAGMA table_info(messages)").all() as unknown as { name: string }[]
+).some((c) => c.name === "images");
+if (!hasImages) {
+  db.exec("ALTER TABLE messages ADD COLUMN images TEXT");
+}
+
 export interface SessionRow {
   id: string;
   title: string;
@@ -35,6 +43,8 @@ export interface MessageRow {
   role: string;
   content: string;
   thinking: string | null;
+  /** JSON-Array mit base64-Bilddaten (ohne data:-Präfix), oder null. */
+  images: string | null;
   created_at: number;
 }
 
@@ -81,6 +91,7 @@ export function insertMessage(
   role: string,
   content: string,
   thinking?: string | null,
+  images?: string[] | null,
 ): MessageRow {
   const row: MessageRow = {
     id: randomUUID(),
@@ -88,12 +99,32 @@ export function insertMessage(
     role,
     content,
     thinking: thinking ?? null,
+    images: images?.length ? JSON.stringify(images) : null,
     created_at: Date.now(),
   };
   db.prepare(
-    "INSERT INTO messages (id, session_id, role, content, thinking, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-  ).run(row.id, row.session_id, row.role, row.content, row.thinking, row.created_at);
+    "INSERT INTO messages (id, session_id, role, content, thinking, images, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    row.id,
+    row.session_id,
+    row.role,
+    row.content,
+    row.thinking,
+    row.images,
+    row.created_at,
+  );
   return row;
+}
+
+/** Bilder einer Zeile als Array — leer, wenn keine oder unlesbar. */
+export function parseImages(row: Pick<MessageRow, "images">): string[] {
+  if (!row.images) return [];
+  try {
+    const parsed: unknown = JSON.parse(row.images);
+    return Array.isArray(parsed) ? parsed.filter((i): i is string => typeof i === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 export function updateAssistantMessage(

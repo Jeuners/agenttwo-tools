@@ -130,10 +130,10 @@ export default function App() {
   }, [chat.streaming, voiceMode, voice]);
 
   const handleSend = useCallback(
-    (text: string) => {
+    (text: string, images: string[] = []) => {
       voice.cancelSpeech();
       pendingSpeechRef.current = "";
-      chat.sendMessage(text);
+      chat.sendMessage(text, images);
     },
     [chat, voice],
   );
@@ -296,7 +296,7 @@ export default function App() {
         <div className="messages" ref={scrollRef}>
           {chat.messages.length === 0 && (
             <div className="welcome">
-              <div className="welcome-title">▸ oxagenttwo</div>
+              <div className="welcome-title">▸ agenttwo-tools</div>
               <p>
                 Echtzeit-Chat mit lokalem Qwen3 über Ollama — per Tastatur oder
                 Stimme (Whisper STT + Piper TTS, alles lokal).

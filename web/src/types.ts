@@ -10,6 +10,8 @@ export interface Message {
   role: "user" | "assistant" | "system";
   content: string;
   thinking: string | null;
+  /** JSON-Array mit base64-Bilddaten, wie es der Server speichert. */
+  images: string | null;
   created_at: number;
 }
 
