@@ -50,8 +50,8 @@ export async function streamOpenRouter(
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
-      "HTTP-Referer": "http://localhost:5173",
-      "X-Title": "oxagenttwo",
+      "HTTP-Referer": "http://localhost:5174",
+      "X-Title": "agenttwo-tools",
     },
     body: JSON.stringify({
       model: opts.model,

@@ -27,7 +27,7 @@ try {
   /* keine .env vorhanden */
 }
 
-const PORT = Number(process.env.PORT ?? 8787);
+const PORT = Number(process.env.PORT ?? 8788);
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 
 const app = Fastify({ logger: true, bodyLimit: MAX_AUDIO_BYTES });

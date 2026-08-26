@@ -1,4 +1,10 @@
-# oxagenttwo
+# agenttwo-tools
+
+> Fork von [agenttwo](https://github.com/Jeuners/agenttwo). Die Basis bleibt dort
+> unverändert; hier kommen Tool-Calling und Vision dazu. Läuft auf eigenen Ports
+> (Backend 8788, Frontend 5174), damit beide Projekte parallel laufen können.
+> Fixes aus der Basis lassen sich per `git cherry-pick` aus dem Remote
+> `upstream` übernehmen.
 
 Voice-Chat-Oberfläche für lokale und Cloud-LLMs: lokales Qwen3 über
 [Ollama](https://ollama.com), optionaler Fallback auf
@@ -77,7 +83,7 @@ Weitere optionale Variablen mit ihren Defaults:
 
 | Variable             | Default                                          |
 |----------------------|--------------------------------------------------|
-| `PORT`               | `8787`                                           |
+| `PORT`               | `8788`                                           |
 | `OLLAMA_URL`         | `http://localhost:11434`                         |
 | `MODEL`              | `qwen3.5:latest`                                 |
 | `WHISPER_MODEL`      | `~/whisper-models/ggml-large-v3-turbo.bin`       |
@@ -92,12 +98,12 @@ Der Server hat **keine Authentifizierung** und lauscht deshalb bewusst nur auf
 Browser geöffnet ist, kann `localhost` per `fetch()` oder WebSocket erreichen.
 Deshalb prüfen sowohl die HTTP-Endpunkte als auch der WebSocket-Handshake die
 `Origin` gegen eine Allowlist (`server/src/security.ts`) — Standard sind
-`localhost`/`127.0.0.1` auf Port 5173 und 8787.
+`localhost`/`127.0.0.1` auf Port 5174 und 8788.
 
 Läuft das Frontend woanders, die Origin ergänzen:
 
 ```bash
-ALLOWED_ORIGINS=http://192.168.1.50:5173
+ALLOWED_ORIGINS=http://192.168.1.50:5174
 ```
 
 Weitere Maßnahmen: Rate-Limits auf `/api/stt` (10/min) und `/api/tts` (30/min),
@@ -111,7 +117,7 @@ echte Authentifizierung.
 
 ```bash
 npm install
-npm run dev          # Server (:8787) und Vite-Dev-Server (:5173) parallel
+npm run dev          # Server (:8788) und Vite-Dev-Server (:5174) parallel
 ```
 
 Einzeln:
