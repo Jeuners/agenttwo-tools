@@ -30,6 +30,44 @@ export interface ChatOptions {
   numPredict: number;
   provider: "ollama" | "openrouter";
   openrouterModel: string;
+  memorySteps: number;
+  memoryAnchors: boolean;
+  dreamAuto: boolean;
+}
+
+export interface Anchor {
+  id: number;
+  session_id: string;
+  text: string;
+  kind: string;
+  importance: number;
+  hits: number;
+  pinned: number;
+  origin: string;
+  last_seq: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface MemoryState {
+  last_seq: number;
+  last_dream_seq: number;
+  dream_count: number;
+}
+
+export interface DreamResult {
+  ok: boolean;
+  events: number;
+  inserted: number;
+  merged: number;
+  pruned: number;
+  source: string;
+  error?: string;
+}
+
+export interface MemoryInfo {
+  state: MemoryState;
+  anchors: Anchor[];
 }
 
 export interface OpenRouterModel {

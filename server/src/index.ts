@@ -5,6 +5,7 @@ import type { IncomingMessage } from "node:http";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as dbmod from "./db.js";
+import * as mem from "./memory.js";
 import { streamChat, type OllamaOptions } from "./ollama.js";
 import { transcribeAudio, synthesizeSpeech, MAX_AUDIO_BYTES } from "./voice.js";
 import {
@@ -31,6 +32,38 @@ try {
 
 const PORT = Number(process.env.PORT ?? 8788);
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
+const MODEL = process.env.MODEL ?? "qwen3.5:latest";
+
+const DREAM_IDLE_MS = 180_000;
+const DREAM_BATCH = 10;
+const dreamTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const activeDreams = new Set<string>();
+
+function runDream(sessionId: string): Promise<mem.DreamResult | null> {
+  if (activeDreams.has(sessionId)) return Promise.resolve(null);
+  activeDreams.add(sessionId);
+  clearTimeout(dreamTimers.get(sessionId));
+  dreamTimers.delete(sessionId);
+  return mem
+    .dream(sessionId, { ollamaUrl: OLLAMA_URL, model: MODEL })
+    .then((result) => {
+      broadcast({ type: "memory-updated", sessionId, result });
+      return result;
+    })
+    .catch((err) => {
+      app.log.error({ err }, "Traumphase fehlgeschlagen");
+      return null;
+    })
+    .finally(() => activeDreams.delete(sessionId));
+}
+
+function scheduleDream(sessionId: string) {
+  clearTimeout(dreamTimers.get(sessionId));
+  dreamTimers.set(
+    sessionId,
+    setTimeout(() => void runDream(sessionId), DREAM_IDLE_MS),
+  );
+}
 
 const app = Fastify({ logger: true, bodyLimit: MAX_AUDIO_BYTES });
 
@@ -64,7 +97,7 @@ app.get("/api/model", async () => {
     const res = await fetch(`${OLLAMA_URL}/api/show`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: process.env.MODEL ?? "qwen3.5:latest" }),
+      body: JSON.stringify({ name: MODEL }),
     });
     if (!res.ok) return { ok: false, error: `Ollama HTTP ${res.status}` };
     const data = (await res.json()) as {
@@ -73,7 +106,7 @@ app.get("/api/model", async () => {
     };
     return {
       ok: true,
-      model: process.env.MODEL ?? "qwen3.5:latest",
+      model: MODEL,
       parameterSize: data.details?.parameter_size,
       quantization: data.details?.quantization_level,
       capabilities: data.capabilities ?? [],
@@ -94,8 +127,53 @@ app.get("/api/sessions/:id/messages", async (req, reply) => {
 });
 app.delete("/api/sessions/:id", async (req) => {
   const { id } = req.params as { id: string };
+  clearTimeout(dreamTimers.get(id));
+  dreamTimers.delete(id);
   dbmod.deleteSession(id);
+  mem.deleteSessionMemory(id);
   broadcast({ type: "session-deleted", id });
+  return { ok: true };
+});
+
+// --- Gedächtnis ---
+app.get("/api/sessions/:id/memory", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  if (!dbmod.getSession(id)) return reply.code(404).send({ error: "not found" });
+  return { state: mem.getMemoryState(id), anchors: mem.listAnchors(id) };
+});
+
+app.post("/api/sessions/:id/dream", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  if (!dbmod.getSession(id)) return reply.code(404).send({ error: "not found" });
+  const result = await mem.dream(id, { ollamaUrl: OLLAMA_URL, model: MODEL });
+  broadcast({ type: "memory-updated", sessionId: id, result });
+  return result;
+});
+
+app.post("/api/sessions/:id/memory/rebuild", async (req, reply) => {
+  const { id } = req.params as { id: string };
+  if (!dbmod.getSession(id)) return reply.code(404).send({ error: "not found" });
+  const result = mem.rebuildMemory(id);
+  broadcast({ type: "memory-updated", sessionId: id, result });
+  return { ok: true, ...result };
+});
+
+app.patch("/api/anchors/:id", async (req, reply) => {
+  const id = Number((req.params as { id: string }).id);
+  const { pinned } = (req.body ?? {}) as { pinned?: boolean };
+  if (!Number.isInteger(id) || typeof pinned !== "boolean") {
+    return reply.code(400).send({ error: "id/pinned fehlt" });
+  }
+  if (!mem.setAnchorPinned(id, pinned)) {
+    return reply.code(404).send({ error: "not found" });
+  }
+  return { ok: true };
+});
+
+app.delete("/api/anchors/:id", async (req, reply) => {
+  const id = Number((req.params as { id: string }).id);
+  if (!Number.isInteger(id)) return reply.code(400).send({ error: "id ungültig" });
+  if (!mem.deleteAnchor(id)) return reply.code(404).send({ error: "not found" });
   return { ok: true };
 });
 
@@ -165,15 +243,21 @@ interface ChatOptionsPayload {
   provider?: string;
   openrouterModel?: string;
   tools?: boolean;
+  memorySteps?: number;
+  memoryAnchors?: boolean;
+  dreamAuto?: boolean;
 }
 
 function parseOptions(raw: unknown): OllamaOptions & {
   provider: "ollama" | "openrouter";
   openrouterModel: string;
+  memorySteps: number;
+  memoryAnchors: boolean;
+  dreamAuto: boolean;
 } {
   const o = (raw ?? {}) as Partial<ChatOptionsPayload>;
   return {
-    model: process.env.MODEL ?? "qwen3.5:latest",
+    model: MODEL,
     think: o.think !== false,
     tools: o.tools !== false,
     temperature: clamp(Number(o.temperature ?? 0.7), 0, 2),
@@ -184,6 +268,9 @@ function parseOptions(raw: unknown): OllamaOptions & {
       /^[\w./:-]{3,120}$/.test(o.openrouterModel)
         ? o.openrouterModel
         : "anthropic/claude-sonnet-4.5",
+    memorySteps: Math.min(Math.max(Math.round(Number(o.memorySteps ?? 10)), 2), 100),
+    memoryAnchors: o.memoryAnchors !== false,
+    dreamAuto: o.dreamAuto !== false,
   };
 }
 
@@ -246,19 +333,34 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
     dbmod.renameSessionIfDefault(session.id, content || "Bild");
 
     const userMsg = dbmod.insertMessage(session.id, "user", content, null, images);
+    mem.appendEvent(session.id, "message", {
+      role: "user",
+      content,
+      images: images.length,
+    });
     socket.send(JSON.stringify({ type: "user-message", message: userMsg }));
     broadcast({ type: "sessions-changed" });
 
     const opts = parseOptions(msg.options);
+    opts.sessionId = session.id;
     const history = dbmod
       .listMessages(session.id)
-      .slice(-24)
+      .slice(-opts.memorySteps)
       .map((m) => {
         const imgs = dbmod.parseImages(m);
         return imgs.length
           ? { role: m.role, content: m.content, images: imgs }
           : { role: m.role, content: m.content };
       });
+
+    const userSystem =
+      typeof msg.systemPrompt === "string" && msg.systemPrompt.trim()
+        ? (msg.systemPrompt as string)
+        : undefined;
+    const anchorBlock = opts.memoryAnchors
+      ? mem.anchorContextBlock(session.id)
+      : null;
+    const system = [userSystem, anchorBlock].filter(Boolean).join("\n\n") || undefined;
 
     const assistantRow = dbmod.insertMessage(session.id, "assistant", "");
     socket.send(JSON.stringify({ type: "assistant-start", message: assistantRow }));
@@ -281,6 +383,12 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
       },
       onDone() {},
       onToolCall(name: string, args: Record<string, unknown>) {
+        mem.appendEvent(session.id, "tool_call", {
+          name,
+          args: JSON.parse(JSON.stringify(args, (_k, v) =>
+            typeof v === "string" && v.length > 300 ? v.slice(0, 300) + "…" : v,
+          )),
+        });
         socket.send(
           JSON.stringify({
             type: "tool-call",
@@ -305,9 +413,7 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
         if (!apiKey) throw new Error("OPENROUTER_API_KEY nicht gesetzt (.env fehlt)");
         await streamOpenRouter(
           history,
-          typeof msg.systemPrompt === "string" && msg.systemPrompt.trim()
-            ? (msg.systemPrompt as string)
-            : undefined,
+          system,
           {
             model: opts.openrouterModel,
             temperature: opts.temperature,
@@ -318,17 +424,13 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
           activeAbort.signal,
         );
       } else {
-        await streamChat(
-          history,
-          typeof msg.systemPrompt === "string" && msg.systemPrompt.trim()
-            ? (msg.systemPrompt as string)
-            : undefined,
-          opts,
-          callbacks,
-          activeAbort.signal,
-        );
+        await streamChat(history, system, opts, callbacks, activeAbort.signal);
       }
       dbmod.updateAssistantMessage(assistantRow.id, full.trim(), thinking.trim() || null);
+      mem.appendEvent(session.id, "message", {
+        role: "assistant",
+        content: full.trim().slice(0, 4000),
+      });
       socket.send(
         JSON.stringify({
           type: "done",
@@ -337,6 +439,14 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
         }),
       );
       broadcast({ type: "sessions-changed" });
+      if (opts.dreamAuto) {
+        const st = mem.getMemoryState(session.id);
+        if (st.last_seq - st.last_dream_seq >= DREAM_BATCH) {
+          void runDream(session.id);
+        } else {
+          scheduleDream(session.id);
+        }
+      }
     } catch (err) {
       const aborted =
         activeAbort.signal.aborted ||

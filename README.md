@@ -129,8 +129,55 @@ sich das in den Einstellungen.
 | `calculate` | Arithmetik mit eigenem Parser |
 | `read_file` | Textdatei unterhalb des Projektverzeichnisses lesen |
 | `list_files` | Verzeichnis auflisten |
+| `remember` | Wichtigen Punkt als gepinnten Ankerpunkt ins Gedächtnis schreiben |
+| `recall` | Gedächtnis (Ankerpunkte) durchsuchen |
 
 Aktuelle Liste: `curl -s http://localhost:8788/api/tools`
+
+## Gedächtnis (Chat-Memory)
+
+Das Gedächtnis hat drei Schichten:
+
+| Schicht | Speicher | Zweck |
+|---|---|---|
+| Arbeitsgedächtnis | Nachrichtenfenster | Einstellbar (Default 10 Schritte), geht ans Modell |
+| Episodisch | `memory_events` | Append-Only-Log: nur INSERT, nie UPDATE/DELETE |
+| Semantisch | `anchors` | Ankerpunkte, destilliert in der Traumphase |
+
+Das Fenster ist in den Einstellungen per Slider einstellbar (2–100 Schritte).
+
+### Traumphase
+
+Die Traumphase konsolidiert neue Log-Einträge in Ankerpunkte — bevorzugt per
+LLM-Extraktion (JSON-Format, Temperatur 0.2), mit einer Regex-Heuristik als
+Fallback. Auslöser:
+
+- automatisch nach 3 Minuten Inaktivität oder wenn 10 Schritte unkonsolidiert sind
+- manuell über 🧠 **Gedächtnis** → „Traumphase jetzt"
+
+Ankerpunkte haben eine Wichtigkeit (0–1), eine Art (`fact`, `decision`,
+`preference`, `entity`, `open_question`) und einen Ursprung (`dream`, `model`,
+`heuristic`, `test`). Ähnliche Anker werden zusammengeführt (Wort-Ähnlichkeit
+≥ 0.5, `hits` steigt). Bei jedem Traumlauf verfallen ungepinnte Anker
+(Importance × 0.9); unter 0.15 und ohne Treffer werden sie gelöscht. Gepinnte
+(★) bleiben dauerhaft.
+
+Die wichtigsten Anker werden als System-Kontext eingespielt (Budget ~1200
+Zeichen) — das Modell beantwortet dann Fragen aus Inhalten, die nie im
+sichtbaren Chatverlauf standen.
+
+### Rekonstruktion
+
+Weil das Log append-only ist, lässt sich der Zustand jederzeit deterministisch
+aus Seq 0 neu falten: 🧠 **Gedächtnis** → „Aus Log rekonstruieren" (gepinnte
+Anker bleiben erhalten). Die Eval der Heuristik und des Dream-Parsers:
+
+```bash
+npm run memory:eval --workspace server
+```
+
+Endpunkte: `GET /api/sessions/:id/memory`, `POST /api/sessions/:id/dream`,
+`POST /api/sessions/:id/memory/rebuild`, `PATCH|DELETE /api/anchors/:id`.
 
 ### Grenzen
 

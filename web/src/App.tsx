@@ -4,6 +4,7 @@ import { useVoice } from "./useVoice";
 import { Sidebar } from "./components/Sidebar";
 import { ChatMessage } from "./components/ChatMessage";
 import { Composer } from "./components/Composer";
+import { MemoryPanel } from "./components/MemoryPanel";
 import type { OpenRouterModel } from "./types";
 
 const VOICE_KEY = "oxagenttwo.voiceMode";
@@ -12,6 +13,7 @@ export default function App() {
   const chat = useChat();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
   const [injectedText, setInjectedText] = useState<string | null>(null);
   const [voiceMode, setVoiceModeState] = useState(
     () => localStorage.getItem(VOICE_KEY) === "1",
@@ -211,6 +213,14 @@ export default function App() {
             </button>
             <button
               className="btn-settings"
+              onClick={() => setMemoryOpen((v) => !v)}
+              disabled={!chat.activeId}
+              title="Gedächtnis: Ankerpunkte, Traumphase, Log-Rekonstruktion"
+            >
+              🧠 Gedächtnis
+            </button>
+            <button
+              className="btn-settings"
               onClick={() => setSettingsOpen((v) => !v)}
             >
               ⚙ Einstellungen
@@ -299,6 +309,42 @@ export default function App() {
                 }
               />
             </label>
+            <label className="setting-row">
+              <span>Gedächtnis-Fenster: {chat.options.memorySteps} Schritte</span>
+              <input
+                type="range"
+                min={2}
+                max={50}
+                step={1}
+                value={chat.options.memorySteps}
+                onChange={(e) =>
+                  chat.setOptions({ memorySteps: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="setting-row checkbox">
+              <input
+                type="checkbox"
+                checked={chat.options.memoryAnchors}
+                onChange={(e) =>
+                  chat.setOptions({ memoryAnchors: e.target.checked })
+                }
+              />
+              <span>
+                Ankerpunkte ins Modell einspielen (Gedächtnis als System-Kontext)
+              </span>
+            </label>
+            <label className="setting-row checkbox">
+              <input
+                type="checkbox"
+                checked={chat.options.dreamAuto}
+                onChange={(e) => chat.setOptions({ dreamAuto: e.target.checked })}
+              />
+              <span>
+                Auto-Traumphase (Konsolidierung nach 3 Min Inaktivität oder 10
+                Schritten)
+              </span>
+            </label>
             <label className="setting-row column">
               <span>System-Prompt</span>
               <textarea
@@ -309,6 +355,13 @@ export default function App() {
               />
             </label>
           </section>
+        )}
+
+        {memoryOpen && chat.activeId && (
+          <MemoryPanel
+            sessionId={chat.activeId}
+            onClose={() => setMemoryOpen(false)}
+          />
         )}
 
         <div className="messages" ref={scrollRef}>

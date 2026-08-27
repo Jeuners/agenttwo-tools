@@ -8,6 +8,8 @@ export interface ToolSchema {
 export interface ToolContext {
   /** Bricht die Ausführung ab, wenn der Nutzer die Antwort stoppt. */
   signal: AbortSignal;
+  /** Sitzung des aktuellen Chats — für Werkzeuge mit Gedächtniszugriff. */
+  sessionId?: string;
 }
 
 export interface Tool {

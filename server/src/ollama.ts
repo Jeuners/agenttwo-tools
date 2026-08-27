@@ -12,6 +12,8 @@ export interface OllamaOptions {
   numPredict: number;
   /** Werkzeuge mitschicken. Aus, wenn der Nutzer sie abgeschaltet hat. */
   tools?: boolean;
+  /** Sitzung des Chats — für Gedächtnis-Werkzeuge (remember/recall). */
+  sessionId?: string;
 }
 
 export interface StreamCallbacks {
@@ -198,7 +200,7 @@ export async function streamChat(
 
     for (const call of toolCalls) {
       cb.onToolCall?.(call.name, call.arguments);
-      const result = await runTool(call, signal);
+      const result = await runTool(call, { signal, sessionId: opts.sessionId });
       cb.onToolResult?.(result.name, result.ok, result.durationMs);
       messages.push({ role: "tool", tool_name: result.name, content: result.content });
     }

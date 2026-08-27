@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "memory:eval": "tsx scripts/memory-eval.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

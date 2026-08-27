@@ -24,6 +24,9 @@ function loadOptions(): ChatOptions {
     numPredict: 2048,
     provider: "ollama",
     openrouterModel: "anthropic/claude-sonnet-4.5",
+    memorySteps: 10,
+    memoryAnchors: true,
+    dreamAuto: true,
   };
   try {
     const raw = localStorage.getItem(OPTIONS_KEY);
