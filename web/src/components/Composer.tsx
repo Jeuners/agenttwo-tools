@@ -253,41 +253,6 @@ export function Composer({
       )}
 
       <div className="composer-row">
-        <button
-          className={`btn-mic ${recording ? "recording" : ""} ${transcribing ? "transcribing" : ""}`}
-          onClick={onMicToggle}
-          title={
-            recording
-              ? "Aufnahme stoppen & senden"
-              : transcribing
-                ? "Transkribiere …"
-                : "Sprachnachricht aufnehmen"
-          }
-          disabled={transcribing || disabled}
-        >
-          {recording ? "●" : transcribing ? "…" : "🎙"}
-        </button>
-
-        <button
-          className="btn-attach"
-          onClick={() => fileRef.current?.click()}
-          disabled={disabled}
-          title="Bild oder Textdatei anhängen (auch per Einfügen oder Drag & Drop)"
-        >
-          📎
-        </button>
-        <input
-          ref={fileRef}
-          type="file"
-          accept={[...ACCEPTED, ...TEXT_EXTS, ...PDF_EXTS].join(",")}
-          multiple
-          hidden
-          onChange={(e) => {
-            void addFiles([...(e.target.files ?? [])]);
-            e.target.value = "";
-          }}
-        />
-
         <textarea
           ref={ref}
           value={value}
@@ -333,6 +298,41 @@ export function Composer({
             Senden ▸
           </button>
         )}
+
+        <button
+          className={`btn-icon btn-mic ${recording ? "recording" : ""} ${transcribing ? "transcribing" : ""}`}
+          onClick={onMicToggle}
+          title={
+            recording
+              ? "Aufnahme stoppen & senden"
+              : transcribing
+                ? "Transkribiere …"
+                : "Sprachnachricht aufnehmen"
+          }
+          disabled={transcribing || disabled}
+        >
+          {recording ? "●" : transcribing ? "…" : "🎙"}
+        </button>
+
+        <button
+          className="btn-icon btn-attach"
+          onClick={() => fileRef.current?.click()}
+          disabled={disabled}
+          title="Bild oder Textdatei anhängen (auch per Einfügen oder Drag & Drop)"
+        >
+          📎
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept={[...ACCEPTED, ...TEXT_EXTS, ...PDF_EXTS].join(",")}
+          multiple
+          hidden
+          onChange={(e) => {
+            void addFiles([...(e.target.files ?? [])]);
+            e.target.value = "";
+          }}
+        />
       </div>
     </div>
   );

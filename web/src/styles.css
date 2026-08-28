@@ -412,15 +412,9 @@ body {
 }
 
 .btn-mic {
-  width: 46px;
   flex-shrink: 0;
-  font-size: 18px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
+  font-size: 17px;
   color: var(--text-dim);
-  transition: border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
 .btn-mic:hover:not(:disabled) {
@@ -509,6 +503,7 @@ body {
 .btn-send {
   min-width: 96px;
   align-self: stretch;
+  background: rgba(61, 220, 132, 0.12);
 }
 
 .btn-send:disabled {
@@ -517,7 +512,7 @@ body {
 }
 
 .btn-send:not(:disabled):hover {
-  background: rgba(61, 220, 132, 0.1);
+  background: rgba(61, 220, 132, 0.22);
 }
 
 .btn-send.stop {
@@ -602,19 +597,45 @@ body {
   color: #f85149;
 }
 
-.btn-attach {
+.btn-icon {
   flex: 0 0 auto;
+  align-self: stretch;
+  width: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  line-height: 1;
   background: transparent;
   border: 1px solid var(--border, #30363d);
   border-radius: 8px;
-  padding: 8px 10px;
   cursor: pointer;
-  color: inherit;
+  color: var(--text-dim);
+  transition: border-color 0.15s, color 0.15s, background 0.15s, transform 0.1s;
 }
 
-.btn-attach:disabled {
+.btn-icon:hover:not(:disabled) {
+  background: rgba(61, 220, 132, 0.08);
+  transform: translateY(-1px);
+}
+
+.btn-icon:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn-icon:disabled {
   opacity: 0.4;
-  cursor: default;
+  cursor: not-allowed;
+}
+
+.btn-icon:focus-visible,
+.btn-send:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn-attach {
+  color: var(--text-dim);
 }
 
 .msg-images {
