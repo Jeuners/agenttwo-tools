@@ -5,6 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatMessage } from "./components/ChatMessage";
 import { Composer } from "./components/Composer";
 import { MemoryPanel } from "./components/MemoryPanel";
+import { ToolConfirm } from "./components/ToolConfirm";
 import type { OpenRouterModel, OllamaModel } from "./types";
 
 const VOICE_KEY = "oxagenttwo.voiceMode";
@@ -433,6 +434,10 @@ export default function App() {
             />
           ))}
         </div>
+
+        {chat.toolConfirm && (
+          <ToolConfirm request={chat.toolConfirm} onDecide={chat.decideToolConfirm} />
+        )}
 
         {voice.error && (
           <div className="voice-error">

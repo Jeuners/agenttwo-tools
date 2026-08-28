@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatSocket } from "./socket";
-import type { ChatOptions, Message, Session , ToolEvent } from "./types";
+import type {
+  ChatOptions,
+  Message,
+  Session,
+  ToolConfirmRequest,
+  ToolDecision,
+  ToolEvent,
+} from "./types";
 
 export type ConnStatus = "connecting" | "open" | "closed";
 export interface ModelInfo {
@@ -46,6 +53,9 @@ export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
+  // Der Server fragt Werkzeuge einzeln und nacheinander an; die Queue ist die
+  // Absicherung für den Fall, dass doch zwei Antworten parallel laufen.
+  const [toolConfirms, setToolConfirms] = useState<ToolConfirmRequest[]>([]);
   const [options, setOptionsState] = useState<ChatOptions>(loadOptions);
   const [systemPrompt, setSystemPromptState] = useState(
     () => localStorage.getItem(SYSTEM_KEY) ?? "",
@@ -112,9 +122,23 @@ export function useChat() {
           );
           return { ...prev, [data.messageId as string]: updated };
         });
+      } else if (t === "tool-confirm") {
+        setToolConfirms((prev) => [
+          ...prev,
+          {
+            id: data.id as string,
+            messageId: data.messageId as string,
+            name: data.name as string,
+            args: data.args as string,
+          },
+        ]);
       } else if (t === "done" || t === "error") {
         streamingRef.current = false;
         setStreaming(false);
+        // Der Server hat jede offene Rückfrage bereits selbst entschieden.
+        setToolConfirms((prev) =>
+          prev.filter((c) => c.messageId !== (data.messageId as string)),
+        );
       } else if (t === "sessions-changed" || t === "session-deleted") {
         void refreshSessions();
       }
@@ -199,6 +223,12 @@ export function useChat() {
 
   const abort = useCallback(() => {
     socketRef.current?.send({ type: "abort" });
+    setToolConfirms([]);
+  }, []);
+
+  const decideToolConfirm = useCallback((id: string, decision: ToolDecision) => {
+    socketRef.current?.send({ type: "tool-confirm-reply", id, decision });
+    setToolConfirms((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
   const newSession = useCallback(async () => {
@@ -226,6 +256,8 @@ export function useChat() {
     messages,
     streaming,
     toolEvents,
+    toolConfirm: toolConfirms[0] ?? null,
+    decideToolConfirm,
     sendMessage,
     abort,
     newSession,

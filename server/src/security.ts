@@ -39,6 +39,9 @@ interface Bucket {
   resetAt: number;
 }
 
+/** Ab dieser Größe wird aufgeräumt — reicht für jede realistische Nutzung. */
+const MAX_BUCKETS = 1000;
+
 /**
  * Einfacher In-Memory-Zähler pro Zeitfenster. Bremst teure Endpunkte
  * (Whisper läuft bis zu 180 s) gegen versehentliche oder böswillige Fluten.
@@ -46,8 +49,16 @@ interface Bucket {
 export function createRateLimiter(limit: number, windowMs: number) {
   const buckets = new Map<string, Bucket>();
 
+  /** Abgelaufene Zähler wegräumen, damit die Map nicht unbegrenzt wächst. */
+  function sweep(now: number) {
+    for (const [key, bucket] of buckets) {
+      if (now >= bucket.resetAt) buckets.delete(key);
+    }
+  }
+
   return function allow(key: string): boolean {
     const now = Date.now();
+    if (buckets.size > MAX_BUCKETS) sweep(now);
     const bucket = buckets.get(key);
 
     if (!bucket || now >= bucket.resetAt) {

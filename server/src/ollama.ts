@@ -24,6 +24,11 @@ export interface StreamCallbacks {
   onToolCall?(name: string, args: Record<string, unknown>): void;
   /** Werkzeug ist fertig. */
   onToolResult?(name: string, ok: boolean, durationMs: number): void;
+  /**
+   * Holt die Freigabe des Nutzers für ein bestätigungspflichtiges Werkzeug.
+   * Fehlt der Rückkanal, lehnt `runTool` solche Werkzeuge ab.
+   */
+  onToolConfirm?(name: string, args: Record<string, unknown>): Promise<boolean>;
 }
 
 /** Muss zum OLLAMA_URL in index.ts passen — vorher war der Host hier hartkodiert. */
@@ -200,7 +205,13 @@ export async function streamChat(
 
     for (const call of toolCalls) {
       cb.onToolCall?.(call.name, call.arguments);
-      const result = await runTool(call, { signal, sessionId: opts.sessionId });
+      const result = await runTool(call, {
+        signal,
+        sessionId: opts.sessionId,
+        confirm: cb.onToolConfirm
+          ? (c) => cb.onToolConfirm!(c.name, c.arguments)
+          : undefined,
+      });
       cb.onToolResult?.(result.name, result.ok, result.durationMs);
       messages.push({ role: "tool", tool_name: result.name, content: result.content });
     }

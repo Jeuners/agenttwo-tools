@@ -10,6 +10,12 @@ export interface ToolContext {
   signal: AbortSignal;
   /** Sitzung des aktuellen Chats — für Werkzeuge mit Gedächtniszugriff. */
   sessionId?: string;
+  /**
+   * Holt die Freigabe des Nutzers für ein Werkzeug mit Außenwirkung.
+   * Fehlt der Rückkanal, werden bestätigungspflichtige Werkzeuge abgelehnt —
+   * lieber nicht ausführen als ungefragt.
+   */
+  confirm?(call: ToolCall): Promise<boolean>;
 }
 
 export interface Tool {
@@ -17,9 +23,9 @@ export interface Tool {
   description: string;
   parameters: ToolSchema;
   /**
-   * Kennzeichnet Werkzeuge mit Außenwirkung (schreibend, Netzwerk, Server).
-   * Bisher gibt es nur lesende Werkzeuge; das Feld existiert, damit die
-   * Bestätigungspflicht später nicht nachträglich eingezogen werden muss.
+   * Kennzeichnet Werkzeuge mit Außenwirkung (Netzwerk, dauerhafter Speicher).
+   * `runTool` fragt vor der Ausführung über `ToolContext.confirm` beim Nutzer
+   * nach und lehnt ab, wenn keine Freigabe kommt.
    */
   requiresConfirmation?: boolean;
   /** Gibt zurück, was dem Modell als Ergebnis gezeigt wird. */

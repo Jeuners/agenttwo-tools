@@ -43,6 +43,11 @@ export function toolNames(): string[] {
   return REGISTRY.map((t) => t.name);
 }
 
+/**
+ * Zeitlimit für das Ergebnis. Der `signal` unten bricht das Werkzeug zusätzlich
+ * ab — beides zusammen, weil ein Werkzeug den Signal auch ignorieren kann und
+ * die Antwort dann trotzdem nicht ewig hängen darf.
+ */
 function withTimeout<T>(p: Promise<T>, ms: number, name: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -74,9 +79,26 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
     };
   }
 
+  if (tool.requiresConfirmation && !(await isApproved(call, ctx))) {
+    return {
+      name: tool.name,
+      content: JSON.stringify({
+        error:
+          "Vom Nutzer abgelehnt. Nicht erneut aufrufen — ohne dieses Werkzeug " +
+          "weitermachen und sagen, was dadurch fehlt.",
+      }),
+      ok: false,
+      durationMs: Date.now() - started,
+    };
+  }
+
+  // Zeitlimit und Nutzer-Abbruch als ein Signal, das an das Werkzeug geht:
+  // damit endet auch ein laufender Netzwerkabruf, statt weiterzulaufen.
+  const signal = AbortSignal.any([ctx.signal, AbortSignal.timeout(TOOL_TIMEOUT_MS)]);
+
   try {
     const value = await withTimeout(
-      tool.run(call.arguments, ctx),
+      tool.run(call.arguments, { ...ctx, signal }),
       TOOL_TIMEOUT_MS,
       tool.name,
     );
@@ -96,5 +118,19 @@ export async function runTool(call: ToolCall, ctx: ToolContext): Promise<ToolRes
       ok: false,
       durationMs: Date.now() - started,
     };
+  }
+}
+
+/**
+ * Freigabe für ein bestätigungspflichtiges Werkzeug. Ohne Rückkanal (Skripte,
+ * Tests) gilt "abgelehnt" — die Bestätigung soll sich nicht dadurch umgehen
+ * lassen, dass niemand zum Fragen da ist.
+ */
+async function isApproved(call: ToolCall, ctx: ToolContext): Promise<boolean> {
+  if (!ctx.confirm) return false;
+  try {
+    return await ctx.confirm(call);
+  } catch {
+    return false;
   }
 }

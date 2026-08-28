@@ -31,6 +31,20 @@ export interface ToolEvent {
   durationMs?: number;
 }
 
+/**
+ * Rückfrage des Servers, bevor ein Werkzeug mit Außenwirkung läuft.
+ * `args` ist das vollständige JSON — bei read_webpage steckt darin die URL,
+ * die der Rechner sonst ungefragt abrufen würde.
+ */
+export interface ToolConfirmRequest {
+  id: string;
+  messageId: string;
+  name: string;
+  args: string;
+}
+
+export type ToolDecision = "allow" | "always" | "deny";
+
 export interface ChatOptions {
   model: string;
   think: boolean;

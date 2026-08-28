@@ -166,11 +166,29 @@ sich das in den Einstellungen.
 | `calculate` | Arithmetik mit eigenem Parser |
 | `read_file` | Textdatei unterhalb des Projektverzeichnisses lesen |
 | `list_files` | Verzeichnis auflisten |
-| `remember` | Wichtigen Punkt als gepinnten Ankerpunkt ins Gedächtnis schreiben |
+| `remember` | Wichtigen Punkt als Ankerpunkt ins Gedächtnis schreiben — **Rückfrage** |
 | `recall` | Gedächtnis (Ankerpunkte) durchsuchen |
-| `read_webpage` | Öffentliche Website laden, Hauptinhalt als Markdown |
+| `read_webpage` | Öffentliche Website laden, Hauptinhalt als Markdown — **Rückfrage** |
 
 Aktuelle Liste: `curl -s http://localhost:8788/api/tools`
+
+### Rückfrage vor Werkzeugen mit Außenwirkung
+
+Werkzeuge mit `requiresConfirmation` laufen erst nach Freigabe. Der Server
+schickt eine Rückfrage über den WebSocket, die Oberfläche zeigt Werkzeugname
+und die **vollständigen** Argumente, und erst die Antwort löst die Ausführung
+aus:
+
+| Antwort | Wirkung |
+|---|---|
+| Ablehnen | Werkzeug läuft nicht; das Modell bekommt "vom Nutzer abgelehnt" als Ergebnis und macht ohne weiter |
+| Einmal zulassen | Nur dieser eine Aufruf |
+| Immer zulassen | Dieses Werkzeug bis zum Neuladen der Seite, pro WebSocket-Verbindung |
+
+Ohne Antwort gilt nach 2 Minuten „abgelehnt"; dasselbe bei Verbindungsabbruch
+und beim Stoppen der Antwort. Läuft ein Werkzeug ohne Rückkanal (Skript,
+Test), wird es abgelehnt statt ungefragt ausgeführt — die Bestätigung soll
+sich nicht dadurch umgehen lassen, dass niemand zum Fragen da ist.
 
 ## Gedächtnis (Chat-Memory)
 
@@ -219,17 +237,29 @@ Endpunkte: `GET /api/sessions/:id/memory`, `POST /api/sessions/:id/dream`,
 
 ### Grenzen
 
-Alle Werkzeuge sind **ausschließlich lesend**. Es gibt nichts, was schreibt,
-löscht oder Befehle ausführt — entsprechend braucht es noch keine
-Rückfrage pro Aufruf. Das Feld `requiresConfirmation` in
-`tools/types.ts` ist bereits vorgesehen, damit die Bestätigungspflicht nicht
-nachträglich eingezogen werden muss, sobald ein schreibendes Werkzeug dazukommt.
+Kein Werkzeug führt Befehle aus oder verändert Dateien. Zwei haben trotzdem
+Außenwirkung und sind deshalb bestätigungspflichtig (siehe oben):
 
-Ausnahme Netzwerk: `read_webpage` lädt öffentliche Websites. Der Abruf ist
-geguardet — nur http/https, private Adressbereiche werden nach DNS-Auflösung
-abgewiesen (SSRF-Schutz, auch über Weiterleitungen), 15 s Zeitlimit, 2 MB
-Fetch-Limit, 25 kB Output-Cap. Der Inhalt wird dem Modell als nicht
-vertrauenswürdig markiert (Prompt-Injection aus Webseiten).
+- **`read_webpage`** verlässt den Rechner. Die URL selbst ist dabei der
+  kritische Teil: Fremdinhalt kann das Modell anweisen, Gesprächsinhalte in
+  eine Adresse zu packen und so nach außen zu geben. Deshalb bekommt der
+  Nutzer die vollständige URL vor dem Abruf zu sehen.
+- **`remember`** schreibt dauerhaft und sessionübergreifend ins Gedächtnis.
+  Modell-Anker werden **nicht** gepinnt — sie unterliegen dem normalen Verfall.
+  Gepinnt wird nur, was der Nutzer im Gedächtnis-Panel selbst mit ★ markiert.
+
+Der Abruf in `read_webpage` ist mehrfach geguardet: nur http/https, private
+Adressbereiche abgewiesen (auch über Weiterleitungen), 15 s Zeitlimit, 2 MB
+Fetch-Limit, 25 kB Output-Cap. Die DNS-Auflösung ist **an die Verbindung
+gepinnt** (`lookup`-Hook in `tools/web.ts`) — geprüft wird genau die Adresse,
+die dann auch verbunden wird. Ein getrennter Vorab-Check, wie ihn `fetch`
+erzwingt, ließe DNS-Rebinding zu: öffentlich beim Prüfen, `127.0.0.1` beim
+Verbinden. Der Inhalt wird dem Modell zusätzlich als nicht vertrauenswürdig
+markiert (Prompt-Injection aus Webseiten).
+
+Ein Nutzer-Abbruch („Stop") beendet auch ein laufendes Werkzeug: `ctx.signal`
+kombiniert Abbruch und Zeitlimit und geht bis in den offenen Netzwerkabruf
+durch.
 
 Der Dateizugriff liegt in einer Sandbox: Jeder Pfad wird über `realpath`
 aufgelöst (löst auch Symlinks auf) und muss danach unterhalb der Wurzel liegen,
@@ -260,9 +290,16 @@ Läuft das Frontend woanders, die Origin ergänzen:
 ALLOWED_ORIGINS=http://192.168.1.50:5174
 ```
 
-Weitere Maßnahmen: Rate-Limits auf `/api/stt` (10/min) und `/api/tts` (30/min),
+Weitere Maßnahmen: Rate-Limits auf `/api/stt` (10/min), `/api/tts` (30/min),
+`/dream` (4/min) und auf Chats pro WebSocket-Verbindung (30/min),
 Format-Whitelist per Magic Bytes vor dem `ffmpeg`-Aufruf, und Fehlerdetails
 landen im Server-Log statt in der HTTP-Antwort.
+
+Bewusst **nicht** abgesichert: Anfragen ohne `Origin`-Header werden
+durchgelassen (`isOriginAllowed`). Für Browser-Clients trägt die Prüfung, denn
+`fetch` und Formular-POSTs senden immer eine Origin — jedes lokale Programm
+kommt aber ungefragt an die API. Das ist für den Einzelplatzbetrieb so
+gewollt; für alles andere gilt der Absatz unten.
 
 Für externen Zugriff reicht ein Reverse-Proxy **nicht** — davor gehört eine
 echte Authentifizierung.

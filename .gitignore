@@ -6,3 +6,6 @@ data.sqlite*
 
 # Piper-Stimmmodell (109 MB) — siehe README, wird lokal heruntergeladen
 server/voices/*.onnx
+
+# Build-Artefakt, wird aus web/src erzeugt
+web/dist/
