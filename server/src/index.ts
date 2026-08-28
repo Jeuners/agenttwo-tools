@@ -1,12 +1,14 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
-import { readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import * as dbmod from "./db.js";
 import * as mem from "./memory.js";
-import { streamChat, type OllamaOptions } from "./ollama.js";
+import { streamChat, type ChatStats, type OllamaOptions } from "./ollama.js";
 import { transcribeAudio, synthesizeSpeech, MAX_AUDIO_BYTES } from "./voice.js";
 import {
   streamOpenRouter,
@@ -34,6 +36,46 @@ try {
 const PORT = Number(process.env.PORT ?? 8788);
 const OLLAMA_URL = process.env.OLLAMA_URL ?? "http://localhost:11434";
 const MODEL = process.env.MODEL ?? "qwen3.5:latest";
+
+/**
+ * Wie lange auf die Freigabe eines bestätigungspflichtigen Werkzeugs gewartet
+ * wird. Danach gilt "abgelehnt" — eine Antwort soll nicht ewig hängen, nur
+ * weil niemand am Rechner sitzt.
+ */
+const CONFIRM_TIMEOUT_MS = 120_000;
+/** Chats pro Minute und Verbindung. Bremst Schleifen und OpenRouter-Kosten. */
+const CHAT_LIMIT_PER_MIN = 30;
+
+/**
+ * Effektive Kontextlänge eines geladenen Ollama-Modells.
+ *
+ * Nicht dasselbe wie die im Modell deklarierte Länge: qwen3.5 meldet 262144,
+ * geladen läuft es je nach Ollama-Default aber mit 4096. Für einen ehrlichen
+ * Füllstand zählt nur, womit das Modell tatsächlich läuft — und das steht in
+ * /api/ps. Kurz gecacht, weil sich das nur beim Nachladen ändert.
+ */
+const CONTEXT_TTL_MS = 30_000;
+const contextCache = new Map<string, { value: number; at: number }>();
+
+async function effectiveContextLength(model: string): Promise<number | undefined> {
+  const hit = contextCache.get(model);
+  if (hit && Date.now() - hit.at < CONTEXT_TTL_MS) return hit.value;
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/ps`);
+    if (!res.ok) return hit?.value;
+    const data = (await res.json()) as {
+      models?: { name?: string; model?: string; context_length?: number }[];
+    };
+    const entry = (data.models ?? []).find(
+      (m) => m.name === model || m.model === model,
+    );
+    if (!entry?.context_length) return hit?.value;
+    contextCache.set(model, { value: entry.context_length, at: Date.now() });
+    return entry.context_length;
+  } catch {
+    return hit?.value;
+  }
+}
 
 const DREAM_IDLE_MS = 180_000;
 const DREAM_BATCH = 10;
@@ -268,6 +310,25 @@ app.get("/api/ollama/models", async () => {
   }
 });
 
+// --- Gebautes Frontend ---
+//
+// Nur wenn web/dist existiert: im Entwicklungsbetrieb liefert der
+// Vite-Server das Frontend aus, dann soll hier nichts danebenstehen.
+// Registrierung nach den API-Routen, damit /api und /ws Vorrang behalten.
+const WEB_DIST = path.join(import.meta.dirname, "..", "..", "web", "dist");
+const hasBuild = existsSync(path.join(WEB_DIST, "index.html"));
+
+if (hasBuild) {
+  await app.register(fastifyStatic, { root: WEB_DIST });
+  app.setNotFoundHandler((req, reply) => {
+    // API-Fehler bleiben JSON; alles andere bekommt die App.
+    if (req.url.startsWith("/api")) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    return reply.sendFile("index.html");
+  });
+}
+
 // --- WebSocket ---
 interface ChatOptionsPayload {
   think: boolean;
@@ -325,7 +386,54 @@ function broadcast(data: unknown) {
 }
 
 wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
-  let activeAbort: AbortController | null = null;
+  // Mehrere Antworten können parallel laufen (zweite Nachricht bei laufendem
+  // Stream). Ein einzelnes Feld würde beim Abbruch nur die letzte erwischen.
+  const activeAborts = new Set<AbortController>();
+  const pendingConfirms = new Map<string, { name: string; decide(ok: boolean): void }>();
+  /** Werkzeuge, die der Nutzer für diese Verbindung generell freigegeben hat. */
+  const alwaysAllowed = new Set<string>();
+  const chatLimiter = createRateLimiter(CHAT_LIMIT_PER_MIN, 60_000);
+
+  function denyAllConfirms() {
+    for (const entry of [...pendingConfirms.values()]) entry.decide(false);
+  }
+
+  /**
+   * Fragt den Nutzer, bevor ein Werkzeug mit Außenwirkung läuft. Bricht die
+   * Verbindung weg oder bleibt die Antwort aus, gilt das als Ablehnung.
+   */
+  function confirmTool(
+    messageId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<boolean> {
+    if (alwaysAllowed.has(name)) return Promise.resolve(true);
+    if (socket.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+
+    const id = randomUUID();
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => decide(false), CONFIRM_TIMEOUT_MS);
+      function decide(approved: boolean) {
+        clearTimeout(timer);
+        pendingConfirms.delete(id);
+        resolve(approved);
+      }
+      pendingConfirms.set(id, { name, decide });
+      socket.send(
+        JSON.stringify({
+          type: "tool-confirm",
+          id,
+          messageId,
+          name,
+          // Ungekürzt: der Nutzer muss genau sehen, was rausgeht — bei
+          // read_webpage ist die vollständige URL der eigentliche Punkt.
+          args: JSON.stringify(args),
+        }),
+      );
+    });
+  }
+
+  socket.on("close", denyAllConfirms);
 
   socket.on("message", async (raw: Buffer) => {
     let msg: Record<string, unknown>;
@@ -336,12 +444,30 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
       return;
     }
 
+    if (msg.type === "tool-confirm-reply") {
+      const entry = pendingConfirms.get(String(msg.id ?? ""));
+      if (!entry) return;
+      // Der Werkzeugname kommt aus dem Server-Zustand, nicht aus der Antwort:
+      // sonst könnte eine Freigabe für ein Werkzeug ein anderes freischalten.
+      if (msg.decision === "always") alwaysAllowed.add(entry.name);
+      entry.decide(msg.decision === "allow" || msg.decision === "always");
+      return;
+    }
+
     if (msg.type === "abort") {
-      activeAbort?.abort();
+      for (const controller of activeAborts) controller.abort();
+      denyAllConfirms();
       return;
     }
 
     if (msg.type !== "chat") return;
+
+    if (!chatLimiter("chat")) {
+      socket.send(
+        JSON.stringify({ type: "error", error: "Zu viele Anfragen — kurz warten." }),
+      );
+      return;
+    }
 
     const sessionId = String(msg.sessionId ?? "");
     const content = String(msg.content ?? "").trim();
@@ -423,7 +549,8 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
     const assistantRow = dbmod.insertMessage(session.id, "assistant", "");
     socket.send(JSON.stringify({ type: "assistant-start", message: assistantRow }));
 
-    activeAbort = new AbortController();
+    const abort = new AbortController();
+    activeAborts.add(abort);
     let full = "";
     let thinking = "";
     const callbacks = {
@@ -463,6 +590,27 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
           JSON.stringify({ type: "tool-result", messageId: assistantRow.id, name, ok, durationMs }),
         );
       },
+      onToolConfirm(name: string, args: Record<string, unknown>) {
+        return confirmTool(assistantRow.id, name, args);
+      },
+      async onStats(stats: ChatStats) {
+        // Nur bei Ollama kennt der Server das echte Fenster; bei OpenRouter
+        // steht die Kontextlänge in der Modellliste, die der Client schon hat.
+        const contextLength =
+          opts.provider === "ollama"
+            ? await effectiveContextLength(opts.model)
+            : undefined;
+        socket.send(
+          JSON.stringify({
+            type: "stats",
+            messageId: assistantRow.id,
+            model: opts.provider === "ollama" ? opts.model : opts.openrouterModel,
+            provider: opts.provider,
+            contextLength,
+            ...stats,
+          }),
+        );
+      },
     };
 
     try {
@@ -479,10 +627,10 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
           },
           apiKey,
           callbacks,
-          activeAbort.signal,
+          abort.signal,
         );
       } else {
-        await streamChat(history, system, opts, callbacks, activeAbort.signal);
+        await streamChat(history, system, opts, callbacks, abort.signal);
       }
       dbmod.updateAssistantMessage(assistantRow.id, full.trim(), thinking.trim() || null);
       mem.appendEvent(session.id, "message", {
@@ -493,7 +641,7 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
         JSON.stringify({
           type: "done",
           messageId: assistantRow.id,
-          aborted: activeAbort.signal.aborted,
+          aborted: abort.signal.aborted,
         }),
       );
       broadcast({ type: "sessions-changed" });
@@ -507,7 +655,7 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
       }
     } catch (err) {
       const aborted =
-        activeAbort.signal.aborted ||
+        abort.signal.aborted ||
         (err instanceof Error && err.name === "AbortError");
       dbmod.updateAssistantMessage(assistantRow.id, full.trim(), thinking.trim() || null);
       if (aborted) {
@@ -522,7 +670,7 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
         );
       }
     } finally {
-      activeAbort = null;
+      activeAborts.delete(abort);
     }
   });
 });
@@ -549,4 +697,9 @@ server.on("upgrade", (req, socket, head) => {
 
 app.listen({ port: PORT, host: "127.0.0.1" }, () => {
   console.log(`[agenttwo-tools] Server läuft auf http://127.0.0.1:${PORT}`);
+  console.log(
+    hasBuild
+      ? "[agenttwo-tools] Frontend aus web/dist wird mit ausgeliefert"
+      : "[agenttwo-tools] Kein web/dist — Frontend über 'npm run dev:web' (:5174)",
+  );
 });

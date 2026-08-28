@@ -896,3 +896,161 @@ body {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* --- Werkzeug-Freigabe --- */
+.tool-confirm {
+  margin: 0 16px 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent-warm);
+  border-radius: 8px;
+  background: rgba(255, 180, 84, 0.07);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tool-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+}
+
+.tool-confirm-mark {
+  color: var(--accent-warm);
+}
+
+.tool-confirm-head code {
+  color: var(--accent-warm);
+  font-weight: 600;
+}
+
+.tool-confirm-args {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--bg);
+  font-size: 0.85em;
+}
+
+.tool-confirm-arg {
+  display: flex;
+  gap: 8px;
+}
+
+.tool-confirm-arg dt {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+}
+
+.tool-confirm-arg dd {
+  flex: 1 1 auto;
+  /* Umbrechen statt abschneiden: eine gekürzte URL wäre wertlos zum Prüfen. */
+  overflow-wrap: anywhere;
+}
+
+.tool-confirm-hint {
+  font-size: 0.82em;
+  color: var(--text-dim);
+}
+
+.tool-confirm-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.btn-decide {
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.85em;
+  cursor: pointer;
+}
+
+.btn-decide:hover {
+  border-color: var(--text-dim);
+}
+
+.btn-decide.allow {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+
+.btn-decide.allow:hover {
+  background: rgba(61, 220, 132, 0.1);
+}
+
+.btn-decide.always {
+  color: var(--text-dim);
+}
+
+.btn-decide.deny:hover {
+  border-color: #f85149;
+  color: #f85149;
+}
+
+.btn-decide:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* --- Statistik-Leiste --- */
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 5px 18px;
+  border-top: 1px solid var(--border);
+  font-size: 0.76em;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-run.streaming {
+  color: var(--accent);
+}
+
+.stats-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: help;
+}
+
+.stats-meter {
+  width: 54px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.stats-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent-dim);
+  transition: width 0.3s ease;
+}
+
+.stats-context.tight {
+  color: var(--accent-warm);
+}
+
+.stats-context.tight .stats-meter-fill {
+  background: var(--accent-warm);
+}
+
+.stats-totals {
+  margin-left: auto;
+  cursor: help;
+  opacity: 0.75;
+}

@@ -16,6 +16,24 @@ export interface OllamaOptions {
   sessionId?: string;
 }
 
+/**
+ * Messwerte einer Antwort. Zahlen kommen aus dem Abschluss-Chunk von Ollama
+ * bzw. dem usage-Block von OpenRouter — nicht geschätzt.
+ */
+export interface ChatStats {
+  /** Tokens im Prompt der letzten Runde: das, was zuletzt im Kontext lag. */
+  promptTokens: number;
+  /** Erzeugte Tokens, über alle Werkzeugrunden summiert. */
+  responseTokens: number;
+  /** Bis zum ersten sichtbaren Token (Denken zählt mit). null, wenn keins kam. */
+  ttftMs: number | null;
+  /** Reine Generierungszeit, ohne Prompt-Auswertung und Modell-Laden. */
+  evalMs: number;
+  /** Wanduhr über alles, inklusive Werkzeuglaufzeit. */
+  totalMs: number;
+  rounds: number;
+}
+
 export interface StreamCallbacks {
   onThinking(text: string): void;
   onToken(text: string): void;
@@ -24,6 +42,16 @@ export interface StreamCallbacks {
   onToolCall?(name: string, args: Record<string, unknown>): void;
   /** Werkzeug ist fertig. */
   onToolResult?(name: string, ok: boolean, durationMs: number): void;
+  /**
+   * Holt die Freigabe des Nutzers für ein bestätigungspflichtiges Werkzeug.
+   * Fehlt der Rückkanal, lehnt `runTool` solche Werkzeuge ab.
+   */
+  onToolConfirm?(name: string, args: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Messwerte, sobald die Antwort steht. Darf asynchron sein — der Aufrufer
+   * wartet ab, damit die Zahlen sicher vor `done` beim Client sind.
+   */
+  onStats?(stats: ChatStats): void | Promise<void>;
 }
 
 /** Muss zum OLLAMA_URL in index.ts passen — vorher war der Host hier hartkodiert. */
@@ -42,7 +70,21 @@ interface ChatChunk {
   };
   done?: boolean;
   error?: string;
+  /** Nur im Abschluss-Chunk. Dauern in Nanosekunden. */
+  prompt_eval_count?: number;
+  eval_count?: number;
+  eval_duration?: number;
 }
+
+/** Rohwerte einer Runde, wie Ollama sie meldet. */
+interface RoundStats {
+  promptTokens: number;
+  responseTokens: number;
+  evalMs: number;
+  ttftMs: number | null;
+}
+
+const NS_PER_MS = 1e6;
 
 export interface ChatMessage {
   role: string;
@@ -90,7 +132,23 @@ async function streamOnce(
   opts: OllamaOptions,
   cb: StreamCallbacks,
   signal: AbortSignal,
-): Promise<{ toolCalls: ToolCall[]; content: string }> {
+): Promise<{ toolCalls: ToolCall[]; content: string; stats: RoundStats }> {
+  const startedAt = Date.now();
+  let firstTokenAt: number | null = null;
+  const stats: RoundStats = {
+    promptTokens: 0,
+    responseTokens: 0,
+    evalMs: 0,
+    ttftMs: null,
+  };
+  /** Übernimmt die Zahlen aus dem Abschluss-Chunk. */
+  function collect(chunk: ChatChunk) {
+    stats.promptTokens = chunk.prompt_eval_count ?? 0;
+    stats.responseTokens = chunk.eval_count ?? 0;
+    stats.evalMs = Math.round((chunk.eval_duration ?? 0) / NS_PER_MS);
+    stats.ttftMs = firstTokenAt === null ? null : firstTokenAt - startedAt;
+  }
+
   const body: Record<string, unknown> = {
     model: opts.model,
     messages,
@@ -139,6 +197,9 @@ async function streamOnce(
         continue;
       }
       if (chunk.error) throw new Error(chunk.error);
+      if (chunk.message?.thinking || chunk.message?.content) {
+        firstTokenAt ??= Date.now();
+      }
       if (chunk.message?.thinking) cb.onThinking(chunk.message.thinking);
       if (chunk.message?.content) {
         content += chunk.message.content;
@@ -150,10 +211,13 @@ async function streamOnce(
           toolCalls.push({ id: call.id, name, arguments: parseArgs(call.function?.arguments) });
         }
       }
-      if (chunk.done) return { toolCalls, content };
+      if (chunk.done) {
+        collect(chunk);
+        return { toolCalls, content, stats };
+      }
     }
   }
-  return { toolCalls, content };
+  return { toolCalls, content, stats };
 }
 
 /**
@@ -176,15 +240,40 @@ export async function streamChat(
     ...history.map(toWire),
   ];
 
+  const startedAt = Date.now();
+  const total: ChatStats = {
+    promptTokens: 0,
+    responseTokens: 0,
+    ttftMs: null,
+    evalMs: 0,
+    totalMs: 0,
+    rounds: 0,
+  };
+  /**
+   * Werkzeugrunden sind mehrere Ollama-Aufrufe für eine sichtbare Antwort:
+   * Erzeugtes wird summiert, der Prompt-Stand ist der der letzten Runde
+   * (die größte Belegung), TTFT zählt nur die erste Runde.
+   */
+  function fold(round: RoundStats) {
+    total.rounds++;
+    total.promptTokens = round.promptTokens || total.promptTokens;
+    total.responseTokens += round.responseTokens;
+    total.evalMs += round.evalMs;
+    total.ttftMs ??= round.ttftMs;
+    total.totalMs = Date.now() - startedAt;
+  }
+
   for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
     const lastRound = round === MAX_TOOL_ROUNDS;
     // In der letzten Runde ohne Werkzeuge fragen, damit eine Antwort entsteht
     // statt eines weiteren Aufrufwunsches.
     const roundOpts = lastRound ? { ...opts, tools: false } : opts;
 
-    const { toolCalls, content } = await streamOnce(messages, roundOpts, cb, signal);
+    const { toolCalls, content, stats } = await streamOnce(messages, roundOpts, cb, signal);
+    fold(stats);
 
     if (toolCalls.length === 0) {
+      await cb.onStats?.(total);
       cb.onDone();
       return;
     }
@@ -200,11 +289,18 @@ export async function streamChat(
 
     for (const call of toolCalls) {
       cb.onToolCall?.(call.name, call.arguments);
-      const result = await runTool(call, { signal, sessionId: opts.sessionId });
+      const result = await runTool(call, {
+        signal,
+        sessionId: opts.sessionId,
+        confirm: cb.onToolConfirm
+          ? (c) => cb.onToolConfirm!(c.name, c.arguments)
+          : undefined,
+      });
       cb.onToolResult?.(result.name, result.ok, result.durationMs);
       messages.push({ role: "tool", tool_name: result.name, content: result.content });
     }
   }
 
+  await cb.onStats?.(total);
   cb.onDone();
 }

@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatSocket } from "./socket";
-import type { ChatOptions, Message, Session , ToolEvent } from "./types";
+import type {
+  ChatOptions,
+  ChatStats,
+  Message,
+  Session,
+  SessionTotals,
+  ToolConfirmRequest,
+  ToolDecision,
+  ToolEvent,
+} from "./types";
 
 export type ConnStatus = "connecting" | "open" | "closed";
 export interface ModelInfo {
@@ -46,6 +55,21 @@ export function useChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [toolEvents, setToolEvents] = useState<Record<string, ToolEvent[]>>({});
+  // Der Server fragt Werkzeuge einzeln und nacheinander an; die Queue ist die
+  // Absicherung für den Fall, dass doch zwei Antworten parallel laufen.
+  const [toolConfirms, setToolConfirms] = useState<ToolConfirmRequest[]>([]);
+  const [stats, setStats] = useState<ChatStats | null>(null);
+  // Während des Streamens gibt es noch keine exakten Zahlen: der Server meldet
+  // sie erst am Ende. Bis dahin zählt die Leiste die eingehenden Chunks als
+  // Näherung und misst die Zeit ab dem ersten Token.
+  const [live, setLive] = useState<{ tokens: number; startedAt: number } | null>(null);
+  const [totals, setTotals] = useState<SessionTotals>({
+    promptTokens: 0,
+    responseTokens: 0,
+    responses: 0,
+    costUsd: 0,
+  });
+  const priceRef = useRef<{ prompt: number; completion: number } | null>(null);
   const [options, setOptionsState] = useState<ChatOptions>(loadOptions);
   const [systemPrompt, setSystemPromptState] = useState(
     () => localStorage.getItem(SYSTEM_KEY) ?? "",
@@ -83,6 +107,11 @@ export function useChat() {
         );
       } else if (t === "token") {
         const text = data.text as string;
+        setLive((cur) =>
+          cur
+            ? { ...cur, tokens: cur.tokens + 1 }
+            : { tokens: 1, startedAt: Date.now() },
+        );
         setMessages((prev) =>
           prev.map((m) =>
             m.id === data.messageId ? { ...m, content: m.content + text } : m,
@@ -112,9 +141,42 @@ export function useChat() {
           );
           return { ...prev, [data.messageId as string]: updated };
         });
+      } else if (t === "stats") {
+        const s = data as unknown as ChatStats;
+        setStats(s);
+        setLive(null);
+        setTotals((prev) => {
+          const price = priceRef.current;
+          const cost =
+            s.provider === "openrouter" && price
+              ? (s.promptTokens * price.prompt + s.responseTokens * price.completion) /
+                1_000_000
+              : 0;
+          return {
+            promptTokens: prev.promptTokens + s.promptTokens,
+            responseTokens: prev.responseTokens + s.responseTokens,
+            responses: prev.responses + 1,
+            costUsd: prev.costUsd + cost,
+          };
+        });
+      } else if (t === "tool-confirm") {
+        setToolConfirms((prev) => [
+          ...prev,
+          {
+            id: data.id as string,
+            messageId: data.messageId as string,
+            name: data.name as string,
+            args: data.args as string,
+          },
+        ]);
       } else if (t === "done" || t === "error") {
         streamingRef.current = false;
         setStreaming(false);
+        setLive(null);
+        // Der Server hat jede offene Rückfrage bereits selbst entschieden.
+        setToolConfirms((prev) =>
+          prev.filter((c) => c.messageId !== (data.messageId as string)),
+        );
       } else if (t === "sessions-changed" || t === "session-deleted") {
         void refreshSessions();
       }
@@ -184,6 +246,8 @@ export function useChat() {
       }
       streamingRef.current = true;
       setStreaming(true);
+      setLive(null);
+      setStats(null);
       socketRef.current?.send({
         type: "chat",
         sessionId: activeId,
@@ -199,6 +263,12 @@ export function useChat() {
 
   const abort = useCallback(() => {
     socketRef.current?.send({ type: "abort" });
+    setToolConfirms([]);
+  }, []);
+
+  const decideToolConfirm = useCallback((id: string, decision: ToolDecision) => {
+    socketRef.current?.send({ type: "tool-confirm-reply", id, decision });
+    setToolConfirms((prev) => prev.filter((c) => c.id !== id));
   }, []);
 
   const newSession = useCallback(async () => {
@@ -226,6 +296,14 @@ export function useChat() {
     messages,
     streaming,
     toolEvents,
+    toolConfirm: toolConfirms[0] ?? null,
+    decideToolConfirm,
+    stats,
+    live,
+    totals,
+    setModelPricing: (p: { prompt: number; completion: number } | null) => {
+      priceRef.current = p;
+    },
     sendMessage,
     abort,
     newSession,
