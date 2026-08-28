@@ -111,17 +111,21 @@ Weitere optionale Variablen mit ihren Defaults:
 | `MODEL`              | `qwen3.5:latest`                                 |
 | `WHISPER_MODEL`      | `~/whisper-models/ggml-large-v3-turbo.bin`       |
 | `WHISPER_LANG`       | `de`                                             |
+
+`MODEL` ist nur der Default: In den Einstellungen lässt sich das lokale
+Ollama-Modell pro Chat über das Dropdown „Lokales Modell“ wechseln (die Liste
+kommt live von `GET /api/ollama/models`).
 | `PIPER_MODEL`        | `server/voices/de_DE-thorsten-high.onnx`         |
 | `ALLOWED_ORIGINS`    | (leer — siehe Sicherheit)                        |
 
-## Bilder (Vision)
+## Anhänge (Bilder & Dateien)
 
 `qwen3.5` bringt die Fähigkeit `vision` mit, deshalb versteht der Chat Bilder.
-Anhängen geht auf drei Wegen: Button 🖼 im Composer, Einfügen aus der
+Anhängen geht auf drei Wegen: Button 📎 im Composer, Einfügen aus der
 Zwischenablage (⌘V) oder Drag & Drop auf die Eingabezeile. Eine Nachricht darf
-auch nur aus einem Bild bestehen.
+auch nur aus einem Anhang bestehen.
 
-Bilder werden zusammen mit der Nachricht in der SQLite-Datei abgelegt und bei
+**Bilder** werden zusammen mit der Nachricht in der SQLite-Datei abgelegt und bei
 Folgefragen erneut mitgeschickt, sodass Rückfragen zum selben Bild funktionieren.
 Für Ollama gehen sie als `images: [base64]` raus, für OpenRouter im
 OpenAI-Format als `image_url` mit data-URL — der MIME-Typ wird dabei aus den
@@ -130,6 +134,16 @@ Magic Bytes bestimmt.
 Grenzen (`server/src/images.ts`): maximal 4 Bilder pro Nachricht, je 6 MB,
 nur PNG, JPEG, GIF und WebP. Der Typ wird an den Magic Bytes geprüft, nicht am
 angegebenen Dateinamen; der WebSocket hat dafür ein Payload-Limit von 32 MB.
+
+**Text- und PDF-Dateien** (`server/src/files.ts`) landen als formatierter Block
+im Kontext und werden ebenfalls gespeichert — Rückfragen zur Datei funktionieren
+also auch in der nächsten Nachricht. Unterstützt: `.txt .json .md .csv .yaml
+.xml .sql` und gängige Code-Endungen, plus `.pdf` (Text wird serverseitig mit
+[pdf-parse](https://www.npmjs.com/package/pdf-parse) extrahiert). Grenzen:
+maximal 4 Dateien pro Nachricht, je 100 kB extrahierter Text (bei PDFs
+gekürzt, nicht abgelehnt), 10 MB PDF-Größe; Binärdateien werden über
+Steuerzeichen erkannt und abgelehnt. Gescannte PDFs ohne Textebene werden
+abgewiesen (keine OCR).
 
 Ob das eingestellte Modell Bilder kann, verrät:
 
