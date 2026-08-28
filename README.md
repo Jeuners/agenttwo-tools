@@ -33,6 +33,12 @@ npm-Workspace mit zwei Paketen:
 - Piper als **Python-Modul** — der Server ruft `python3 -m piper` auf,
   nicht das gleichnamige Homebrew-Binary
 
+**RAM-Hinweis (Apple Silicon):** Qwen3.5 belegt ~7 GB im Speicher — mit
+weniger als 16 GB RAM wird es eng. Dann lieber das kleinere
+[`qwen3:8b`](https://ollama.com/library/qwen3) (`ollama pull qwen3:8b`,
+~5 GB) laden und in den Einstellungen unter „Lokales Modell“ wählen bzw.
+`MODEL=qwen3:8b` in die `.env` schreiben.
+
 ## Schnellstart (Mac)
 
 Ein Befehl von null bis zur lauffähigen App — das Skript prüft alle

@@ -198,6 +198,10 @@ else
 fi
 
 sect "9/9 Sprachmodell ($MODEL)"
+RAM_GB=$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1024 / 1024 / 1024 ))
+if [ "$RAM_GB" -gt 0 ] && [ "$RAM_GB" -lt 16 ]; then
+  warn "Nur ${RAM_GB} GB RAM — $MODEL belegt ~7 GB. Leichtere Alternative: qwen3:8b (ollama pull qwen3:8b, dann in .env: MODEL=qwen3:8b)."
+fi
 MODEL_OK=0
 if [ "$OLLAMA_SVC" -eq 1 ]; then
   if ollama list 2>/dev/null | awk '{print $1}' | grep -qx "$MODEL"; then
