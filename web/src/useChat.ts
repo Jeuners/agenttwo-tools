@@ -18,6 +18,7 @@ const SYSTEM_KEY = "oxagenttwo.systemPrompt";
 
 function loadOptions(): ChatOptions {
   const defaults: ChatOptions = {
+    model: "qwen3.5:latest",
     think: true,
     tools: true,
     temperature: 0.7,
@@ -65,6 +66,9 @@ export function useChat() {
         setMessages((prev) =>
           prev.some((x) => x.id === m.id) ? prev : [...prev, m],
         );
+        // Legt der Server bei unbekannter sessionId einen neuen Chat an,
+        // springt der Client mit — sonst landen Nachrichten "im Leeren".
+        setActiveId((cur) => (cur === m.session_id ? cur : m.session_id));
       } else if (t === "assistant-start") {
         const m = data.message as Message;
         setMessages((prev) => [...prev, { ...m, content: "", thinking: "" }]);
@@ -127,16 +131,22 @@ export function useChat() {
     const res = await fetch("/api/sessions");
     const list = (await res.json()) as Session[];
     setSessions(list);
-    setActiveId((cur) => cur ?? list[0]?.id ?? null);
+    // Tote IDs (z. B. gelöschte Sessions) verfallen und fallen auf die neueste zurück.
+    setActiveId((cur) =>
+      cur && list.some((s) => s.id === cur) ? cur : (list[0]?.id ?? null),
+    );
   }, []);
 
   useEffect(() => {
     void refreshSessions();
-    fetch("/api/model")
+  }, [refreshSessions]);
+
+  useEffect(() => {
+    fetch(`/api/model?name=${encodeURIComponent(options.model)}`)
       .then((r) => r.json())
       .then(setModelInfo)
       .catch(() => setModelInfo({ ok: false, error: "Ollama nicht erreichbar" }));
-  }, [refreshSessions]);
+  }, [options.model]);
 
   // load messages on session switch
   useEffect(() => {

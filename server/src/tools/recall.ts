@@ -17,7 +17,7 @@ export const recallTool: Tool = {
   },
   async run(args, ctx) {
     if (!ctx.sessionId) throw new ToolError("Keine Sitzung für das Gedächtnis bekannt");
-    const anchors = queryAnchors(ctx.sessionId, String(args.query ?? ""));
+    const anchors = queryAnchors(String(args.query ?? ""));
     return {
       count: anchors.length,
       anchors: anchors.map((a) => ({

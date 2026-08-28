@@ -5,7 +5,7 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatMessage } from "./components/ChatMessage";
 import { Composer } from "./components/Composer";
 import { MemoryPanel } from "./components/MemoryPanel";
-import type { OpenRouterModel } from "./types";
+import type { OpenRouterModel, OllamaModel } from "./types";
 
 const VOICE_KEY = "oxagenttwo.voiceMode";
 
@@ -19,6 +19,7 @@ export default function App() {
     () => localStorage.getItem(VOICE_KEY) === "1",
   );
   const [orModels, setOrModels] = useState<OpenRouterModel[]>([]);
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
 
   useEffect(() => {
     if (
@@ -33,7 +34,19 @@ export default function App() {
         })
         .catch(() => {});
     }
-  }, [settingsOpen, chat.options.provider, orModels.length]);
+    if (
+      settingsOpen &&
+      chat.options.provider === "ollama" &&
+      ollamaModels.length === 0
+    ) {
+      fetch("/api/ollama/models")
+        .then((r) => r.json())
+        .then((d: { ok: boolean; models?: OllamaModel[] }) => {
+          if (d.ok && d.models) setOllamaModels(d.models);
+        })
+        .catch(() => {});
+    }
+  }, [settingsOpen, chat.options.provider, orModels.length, ollamaModels.length]);
 
   const voiceModeRef = useRef(voiceMode);
   const streamingRef = useRef(false);
@@ -138,6 +151,10 @@ export default function App() {
       .then((d: { tools?: string[] }) => setToolNames(d.tools ?? []))
       .catch(() => setToolNames([]));
   }, []);
+
+  const modelLabel = (chat.options.provider === "openrouter"
+    ? chat.options.openrouterModel.split("/").pop()
+    : chat.options.model.replace(/:latest$/, "")) ?? "qwen3";
 
   const handleSend = useCallback(
     (text: string, images: string[] = []) => {
@@ -264,6 +281,36 @@ export default function App() {
               </label>
             )}
             {chat.options.provider === "ollama" && (
+              <label className="setting-row">
+                <span>Lokales Modell (Ollama)</span>
+                <select
+                  className="provider-select"
+                  value={
+                    ollamaModels.some((m) => m.name === chat.options.model)
+                      ? chat.options.model
+                      : ""
+                  }
+                  onChange={(e) =>
+                    chat.setOptions({ model: e.target.value })
+                  }
+                >
+                  {!ollamaModels.some((m) => m.name === chat.options.model) && (
+                    <option value="">{chat.options.model} (nicht installiert)</option>
+                  )}
+                  {ollamaModels.map((m) => (
+                    <option key={m.name} value={m.name}>
+                      {m.name}
+                      {m.parameterSize ? ` · ${m.parameterSize}` : ""}
+                      {m.sizeGB ? ` · ${m.sizeGB} GB` : ""}
+                    </option>
+                  ))}
+                  {ollamaModels.length === 0 && (
+                    <option value={chat.options.model}>{chat.options.model}</option>
+                  )}
+                </select>
+              </label>
+            )}
+            {chat.options.provider === "ollama" && (
             <label className="setting-row checkbox">
               <input
                 type="checkbox"
@@ -378,7 +425,12 @@ export default function App() {
             </div>
           )}
           {chat.messages.map((m) => (
-            <ChatMessage key={m.id} message={m} toolEvents={chat.toolEvents[m.id]} />
+            <ChatMessage
+              key={m.id}
+              message={m}
+              toolEvents={chat.toolEvents[m.id]}
+              modelLabel={modelLabel}
+            />
           ))}
         </div>
 
@@ -395,6 +447,7 @@ export default function App() {
           recording={voice.recording}
           transcribing={voice.transcribing}
           injectedText={injectedText}
+          modelLabel={modelLabel}
           onInjected={() => setInjectedText(null)}
           onSend={handleSend}
           onAbort={handleAbort}

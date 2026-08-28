@@ -92,21 +92,23 @@ app.get("/api/health", async () => ({ ok: true }));
 
 app.get("/api/tools", async () => ({ ok: true, tools: toolNames() }));
 
-app.get("/api/model", async () => {
+app.get("/api/model", async (req, reply) => {
+  const q = (req.query as { name?: string }).name;
+  const name = q && /^[\w.:-]{2,80}$/.test(q) ? q : MODEL;
   try {
     const res = await fetch(`${OLLAMA_URL}/api/show`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: MODEL }),
+      body: JSON.stringify({ name }),
     });
-    if (!res.ok) return { ok: false, error: `Ollama HTTP ${res.status}` };
+    if (!res.ok) return reply.code(404).send({ ok: false, error: `Ollama HTTP ${res.status}` });
     const data = (await res.json()) as {
       details?: { parameter_size?: string; quantization_level?: string };
       capabilities?: string[];
     };
     return {
       ok: true,
-      model: MODEL,
+      model: name,
       parameterSize: data.details?.parameter_size,
       quantization: data.details?.quantization_level,
       capabilities: data.capabilities ?? [],
@@ -139,7 +141,7 @@ app.delete("/api/sessions/:id", async (req) => {
 app.get("/api/sessions/:id/memory", async (req, reply) => {
   const { id } = req.params as { id: string };
   if (!dbmod.getSession(id)) return reply.code(404).send({ error: "not found" });
-  return { state: mem.getMemoryState(id), anchors: mem.listAnchors(id) };
+  return { state: mem.getMemoryState(id), anchors: mem.listAnchorsAll() };
 });
 
 app.post("/api/sessions/:id/dream", async (req, reply) => {
@@ -235,6 +237,29 @@ app.get("/api/openrouter/models", async () => {
   }
 });
 
+// --- Ollama models ---
+app.get("/api/ollama/models", async () => {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`);
+    if (!res.ok) return { ok: false, error: `Ollama HTTP ${res.status}` };
+    const data = (await res.json()) as {
+      models?: { name: string; size?: number; details?: { parameter_size?: string; quantization_level?: string } }[];
+    };
+    return {
+      ok: true,
+      models: (data.models ?? []).map((m) => ({
+        name: m.name,
+        sizeGB: m.size ? Math.round(m.size / 1e8) / 10 : undefined,
+        parameterSize: m.details?.parameter_size,
+        quantization: m.details?.quantization_level,
+      })),
+    };
+  } catch (err) {
+    app.log.error({ err }, "Ollama-Modellliste fehlgeschlagen");
+    return { ok: false, error: "Ollama nicht erreichbar" };
+  }
+});
+
 // --- WebSocket ---
 interface ChatOptionsPayload {
   think: boolean;
@@ -243,6 +268,7 @@ interface ChatOptionsPayload {
   provider?: string;
   openrouterModel?: string;
   tools?: boolean;
+  model?: string;
   memorySteps?: number;
   memoryAnchors?: boolean;
   dreamAuto?: boolean;
@@ -257,7 +283,10 @@ function parseOptions(raw: unknown): OllamaOptions & {
 } {
   const o = (raw ?? {}) as Partial<ChatOptionsPayload>;
   return {
-    model: MODEL,
+    model:
+      typeof o.model === "string" && /^[\w.:-]{2,80}$/.test(o.model)
+        ? o.model
+        : MODEL,
     think: o.think !== false,
     tools: o.tools !== false,
     temperature: clamp(Number(o.temperature ?? 0.7), 0, 2),

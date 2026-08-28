@@ -30,9 +30,11 @@ function imagesOf(message: Message): string[] {
 export function ChatMessage({
   message,
   toolEvents = [],
+  modelLabel = "qwen3",
 }: {
   message: Message;
   toolEvents?: ToolEvent[];
+  modelLabel?: string;
 }) {
   const [showThinking, setShowThinking] = useState(false);
   const isUser = message.role === "user";
@@ -41,7 +43,7 @@ export function ChatMessage({
   return (
     <div className={`msg ${isUser ? "msg-user" : "msg-assistant"}`}>
       <div className="msg-role">
-        {isUser ? "du" : "qwen3"}
+        {isUser ? "du" : modelLabel}
       </div>
 
       {!isUser && message.thinking && message.thinking.length > 0 && (

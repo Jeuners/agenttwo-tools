@@ -19,6 +19,7 @@ interface Props {
   recording: boolean;
   transcribing: boolean;
   injectedText: string | null;
+  modelLabel?: string;
   onInjected: () => void;
   onSend: (text: string, images: string[]) => void;
   onAbort: () => void;
@@ -49,6 +50,7 @@ export function Composer({
   recording,
   transcribing,
   injectedText,
+  modelLabel = "qwen3",
   onInjected,
   onSend,
   onAbort,
@@ -194,7 +196,7 @@ export function Composer({
               ? "Ich höre zu … (zum Beenden nochmal auf das Mikro klicken)"
               : disabled
                 ? "Keine Session aktiv — neuen Chat starten"
-                : "Nachricht an qwen3 … (Enter = senden, Bild einfügen mit ⌘V)"
+                : `Nachricht an ${modelLabel} … (Enter = senden, Bild einfügen mit ⌘V)`
           }
           rows={1}
           disabled={disabled}

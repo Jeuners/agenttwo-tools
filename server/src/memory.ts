@@ -139,6 +139,15 @@ export function listAnchors(sessionId: string): AnchorRow[] {
     .all(sessionId) as unknown as AnchorRow[];
 }
 
+/** Ankerpunkte über alle Sessions — das Gedächtnis ist bewusst global. */
+export function listAnchorsAll(): AnchorRow[] {
+  return db
+    .prepare(
+      "SELECT * FROM anchors ORDER BY pinned DESC, importance DESC, updated_at DESC LIMIT 100",
+    )
+    .all() as unknown as AnchorRow[];
+}
+
 function countAnchors(sessionId: string): number {
   return Number(
     (
@@ -354,25 +363,27 @@ export function anchorContextBlock(
   sessionId: string,
   maxChars = 1200,
 ): string | null {
-  const anchors = listAnchors(sessionId).slice(0, 20);
+  const all = [...listAnchorsAll()];
+  const score = (a: AnchorRow) =>
+    (a.pinned ? 2 : 0) + a.importance + (a.session_id === sessionId ? 0.5 : 0);
+  all.sort((x, y) => score(y) - score(x));
   const lines: string[] = [];
   let chars = 0;
-  for (const a of anchors) {
+  for (const a of all) {
     const line = `- [${KIND_LABEL[a.kind] ?? a.kind}] ${a.text}`;
     if (chars + line.length > maxChars) break;
     lines.push(line);
     chars += line.length;
   }
   if (lines.length === 0) return null;
-  return `Bekannte Ankerpunkte aus diesem und früheren Gesprächen (Gedächtnis — als Kontext nutzen, nicht wörtlich zitieren):\n${lines.join("\n")}`;
+  return `Bekannte Ankerpunkte über den Nutzer aus früheren und aktuellen Gesprächen (Gedächtnis — als verlässliches Wissen behandeln, nicht wörtlich zitieren):\n${lines.join("\n")}`;
 }
 
 export function queryAnchors(
-  sessionId: string,
   query: string,
   limit = 12,
 ): AnchorRow[] {
-  const anchors = listAnchors(sessionId);
+  const anchors = listAnchorsAll();
   const q = query.trim();
   if (!q) return anchors.slice(0, limit);
   return anchors

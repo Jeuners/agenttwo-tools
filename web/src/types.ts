@@ -24,6 +24,7 @@ export interface ToolEvent {
 }
 
 export interface ChatOptions {
+  model: string;
   think: boolean;
   tools: boolean;
   temperature: number;
@@ -33,6 +34,13 @@ export interface ChatOptions {
   memorySteps: number;
   memoryAnchors: boolean;
   dreamAuto: boolean;
+}
+
+export interface OllamaModel {
+  name: string;
+  sizeGB?: number;
+  parameterSize?: string;
+  quantization?: string;
 }
 
 export interface Anchor {
