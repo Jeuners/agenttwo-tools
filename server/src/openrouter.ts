@@ -76,6 +76,10 @@ export async function streamOpenRouter(
   cb: StreamCallbacks,
   signal: AbortSignal,
 ): Promise<void> {
+  // Vor dem fetch: TTFT soll die Wartezeit auf den Anbieter enthalten, nicht
+  // erst ab dem Eintreffen der Antwort-Header zählen (so misst es auch Ollama).
+  const startedAt = Date.now();
+
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -108,7 +112,6 @@ export async function streamOpenRouter(
   const decoder = new TextDecoder();
   let buffer = "";
 
-  const startedAt = Date.now();
   let firstTokenAt: number | null = null;
   const stats: ChatStats = {
     promptTokens: 0,
@@ -125,6 +128,7 @@ export async function streamOpenRouter(
    */
   function finish(): void | Promise<void> {
     stats.totalMs = Date.now() - startedAt;
+    stats.ttftMs = firstTokenAt === null ? null : firstTokenAt - startedAt;
     stats.evalMs = firstTokenAt === null ? 0 : Date.now() - firstTokenAt;
     return cb.onStats?.(stats);
   }

@@ -26,7 +26,8 @@ npm-Workspace mit zwei Paketen:
 | `web/`    | React 18 + Vite Frontend, Markdown-Rendering, Voice-Recording           |
 
 Der Chat läuft über einen WebSocket (`/ws`), alles andere über REST. Chats,
-Nachrichten, Anhänge und Gedächtnis liegen in `server/data.sqlite`.
+Nachrichten, Anhänge und Gedächtnis liegen in `server/data.sqlite`. Im
+Produktionsbetrieb liefert der Server das gebaute Frontend gleich mit aus.
 
 ## Voraussetzungen
 
@@ -364,14 +365,16 @@ läuft die App unter `http://localhost:5174` aus einer Herkunft.
 ## Produktion
 
 ```bash
-npm start            # baut web/dist und startet den Server
+npm start            # baut web/dist und startet den Server auf :8788
 ```
 
-**Hinweis:** Der Server liefert das gebaute Frontend derzeit *nicht* aus — er
-stellt nur die API auf `:8788` bereit, `web/dist` bleibt liegen. Für einen
-Produktivbetrieb braucht es einen statischen Server davor, der `web/dist`
-ausliefert und `/api` sowie `/ws` an `127.0.0.1:8788` weiterreicht. Für den
-Alltagsbetrieb auf dem eigenen Rechner ist `npm run dev` der vorgesehene Weg.
+Der Server liefert das gebaute Frontend mit aus — die App läuft dann
+vollständig unter `http://localhost:8788`, ohne zweiten Prozess. Fehlt
+`web/dist`, stellt er nur die API bereit und sagt das beim Start; das ist der
+Normalfall im Entwicklungsbetrieb, wo Vite das Frontend übernimmt.
+
+`/api` und `/ws` behalten Vorrang vor den statischen Dateien. Unbekannte
+`/api`-Pfade antworten mit JSON-404, alles andere bekommt `index.html`.
 
 Der Server bindet ausschließlich an `127.0.0.1`; zum Aussetzen ins Netz siehe
 [Sicherheit](#sicherheit).

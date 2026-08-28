@@ -1,9 +1,10 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { WebSocketServer, WebSocket } from "ws";
 import type { IncomingMessage } from "node:http";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import * as dbmod from "./db.js";
 import * as mem from "./memory.js";
@@ -308,6 +309,25 @@ app.get("/api/ollama/models", async () => {
     return { ok: false, error: "Ollama nicht erreichbar" };
   }
 });
+
+// --- Gebautes Frontend ---
+//
+// Nur wenn web/dist existiert: im Entwicklungsbetrieb liefert der
+// Vite-Server das Frontend aus, dann soll hier nichts danebenstehen.
+// Registrierung nach den API-Routen, damit /api und /ws Vorrang behalten.
+const WEB_DIST = path.join(import.meta.dirname, "..", "..", "web", "dist");
+const hasBuild = existsSync(path.join(WEB_DIST, "index.html"));
+
+if (hasBuild) {
+  await app.register(fastifyStatic, { root: WEB_DIST });
+  app.setNotFoundHandler((req, reply) => {
+    // API-Fehler bleiben JSON; alles andere bekommt die App.
+    if (req.url.startsWith("/api")) {
+      return reply.code(404).send({ error: "not found" });
+    }
+    return reply.sendFile("index.html");
+  });
+}
 
 // --- WebSocket ---
 interface ChatOptionsPayload {
@@ -677,4 +697,9 @@ server.on("upgrade", (req, socket, head) => {
 
 app.listen({ port: PORT, host: "127.0.0.1" }, () => {
   console.log(`[agenttwo-tools] Server läuft auf http://127.0.0.1:${PORT}`);
+  console.log(
+    hasBuild
+      ? "[agenttwo-tools] Frontend aus web/dist wird mit ausgeliefert"
+      : "[agenttwo-tools] Kein web/dist — Frontend über 'npm run dev:web' (:5174)",
+  );
 });
