@@ -6,6 +6,7 @@ import { ChatMessage } from "./components/ChatMessage";
 import { Composer } from "./components/Composer";
 import { MemoryPanel } from "./components/MemoryPanel";
 import { ToolConfirm } from "./components/ToolConfirm";
+import { StatsBar } from "./components/StatsBar";
 import type { OpenRouterModel, OllamaModel } from "./types";
 
 const VOICE_KEY = "oxagenttwo.voiceMode";
@@ -48,6 +49,22 @@ export default function App() {
         .catch(() => {});
     }
   }, [settingsOpen, chat.options.provider, orModels.length, ollamaModels.length]);
+
+  // Bei OpenRouter kennt nur der Client Preise und Kontextlänge — sie stehen
+  // in der Modellliste, nicht in der Antwort des Servers.
+  const activeOrModel =
+    chat.options.provider === "openrouter"
+      ? orModels.find((m) => m.id === chat.options.openrouterModel)
+      : undefined;
+
+  const setModelPricing = chat.setModelPricing;
+  useEffect(() => {
+    setModelPricing(
+      activeOrModel
+        ? { prompt: activeOrModel.promptPrice, completion: activeOrModel.completionPrice }
+        : null,
+    );
+  }, [activeOrModel, setModelPricing]);
 
   const voiceModeRef = useRef(voiceMode);
   const streamingRef = useRef(false);
@@ -445,6 +462,13 @@ export default function App() {
             <button onClick={() => voice.setError(null)}>✕</button>
           </div>
         )}
+
+        <StatsBar
+          stats={chat.stats}
+          live={chat.live}
+          totals={chat.totals}
+          contextLength={activeOrModel?.contextLength}
+        />
 
         <Composer
           streaming={chat.streaming}

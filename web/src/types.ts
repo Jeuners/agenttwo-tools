@@ -45,6 +45,30 @@ export interface ToolConfirmRequest {
 
 export type ToolDecision = "allow" | "always" | "deny";
 
+/** Messwerte einer Antwort, wie der Server sie nach `done` schickt. */
+export interface ChatStats {
+  messageId: string;
+  model: string;
+  provider: "ollama" | "openrouter";
+  promptTokens: number;
+  responseTokens: number;
+  ttftMs: number | null;
+  evalMs: number;
+  totalMs: number;
+  rounds: number;
+  /** Effektives Kontextfenster; bei OpenRouter aus der Modellliste ergänzt. */
+  contextLength?: number;
+}
+
+/** Aufsummiert über den Chat. Lebt im Browser und ist nach Reload weg. */
+export interface SessionTotals {
+  promptTokens: number;
+  responseTokens: number;
+  responses: number;
+  /** Geschätzte Kosten in USD; nur bei OpenRouter mit bekannten Preisen. */
+  costUsd: number;
+}
+
 export interface ChatOptions {
   model: string;
   think: boolean;
@@ -104,7 +128,9 @@ export interface OpenRouterModel {
   id: string;
   name: string;
   contextLength: number;
+  /** Preis je 1 Mio. Tokens in USD. */
   promptPrice: number;
+  completionPrice: number;
 }
 
 export interface ModelInfo {

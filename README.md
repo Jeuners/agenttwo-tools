@@ -190,6 +190,37 @@ und beim Stoppen der Antwort. Läuft ein Werkzeug ohne Rückkanal (Skript,
 Test), wird es abgelehnt statt ungefragt ausgeführt — die Bestätigung soll
 sich nicht dadurch umgehen lassen, dass niemand zum Fragen da ist.
 
+## Statistik-Leiste
+
+Über dem Eingabefeld läuft eine Zeile mit den Messwerten der letzten Antwort:
+
+```
+3.891 ↑ · 127 ↓ · 34,5 tok/s · TTFT 0,6 s · 5,2 s · 2 Runden   ▬▬▬ 3.891 / 4.096   Σ 12.480 ↑ 2.143 ↓
+```
+
+| Wert | Bedeutung |
+|---|---|
+| `↑` / `↓` | Tokens im Prompt / erzeugte Tokens |
+| `tok/s` | Erzeugte Tokens durch reine Generierungszeit (`eval_duration`) |
+| `TTFT` | Zeit bis zum ersten sichtbaren Token, Denken zählt mit |
+| Gesamtzeit | Wanduhr inklusive Werkzeuglaufzeit |
+| Runden | Nur ab 2 — jede Werkzeugrunde ist ein eigener Modellaufruf |
+| Balken | Prompt gegen das Kontextfenster |
+| `Σ` | Summe über den Chat, seit dem letzten Neuladen der Seite |
+
+Die Zahlen sind **nicht geschätzt**: bei Ollama kommen sie aus dem
+Abschluss-Chunk (`prompt_eval_count`, `eval_count`, `eval_duration`), bei
+OpenRouter aus dem `usage`-Block (dafür wird `stream_options.include_usage`
+gesetzt) — dort zusätzlich die Kosten aus der Preisliste. Während des
+Streamens gibt es diese Werte noch nicht; die Leiste zählt so lange die
+eingehenden Chunks und markiert das mit `≈`.
+
+Der Kontextbalken rechnet gegen das **tatsächlich genutzte** Fenster aus
+`GET /api/ps`, nicht gegen die im Modell deklarierte Länge. Das ist nicht
+dasselbe: qwen3.5 deklariert 262144, geladen läuft es je nach Ollama-Default
+mit 4096. Gegen die deklarierte Länge stünde der Balken bei 1 %, während vorne
+längst abgeschnitten wird. Ab 90 % färbt er sich orange.
+
 ## Gedächtnis (Chat-Memory)
 
 Das Gedächtnis hat drei Schichten:

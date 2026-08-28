@@ -1,4 +1,5 @@
 import { mimeFromBase64 } from "./images.js";
+import type { ChatStats } from "./ollama.js";
 
 export interface OpenRouterOptions {
   model: string;
@@ -10,6 +11,8 @@ export interface StreamCallbacks {
   onThinking(text: string): void;
   onToken(text: string): void;
   onDone(): void;
+  /** Messwerte, sobald die Antwort steht. Wird vor `done` abgewartet. */
+  onStats?(stats: ChatStats): void | Promise<void>;
 }
 
 export function getOpenRouterKey(): string | undefined {
@@ -17,7 +20,13 @@ export function getOpenRouterKey(): string | undefined {
 }
 
 export async function listOpenRouterModels(): Promise<
-  { id: string; name: string; contextLength: number; promptPrice: number }[]
+  {
+    id: string;
+    name: string;
+    contextLength: number;
+    promptPrice: number;
+    completionPrice: number;
+  }[]
 > {
   const res = await fetch("https://openrouter.ai/api/v1/models");
   if (!res.ok) throw new Error(`OpenRouter HTTP ${res.status}`);
@@ -26,15 +35,17 @@ export async function listOpenRouterModels(): Promise<
       id: string;
       name: string;
       context_length: number;
-      pricing: { prompt: string };
+      pricing: { prompt: string; completion?: string };
     }[];
   };
+  // Preise kommen pro Token; die Anzeige rechnet in Preis je 1 Mio. Tokens.
   return data.data
     .map((m) => ({
       id: m.id,
       name: m.name,
       contextLength: m.context_length,
       promptPrice: Number(m.pricing?.prompt ?? 0) * 1_000_000,
+      completionPrice: Number(m.pricing?.completion ?? 0) * 1_000_000,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -76,6 +87,8 @@ export async function streamOpenRouter(
     body: JSON.stringify({
       model: opts.model,
       stream: true,
+      // Ohne das kommt kein usage-Block und die Tokenzahlen blieben leer.
+      stream_options: { include_usage: true },
       messages: [
         ...(systemPrompt ? [{ role: "system", content: systemPrompt }] : []),
         ...history.map(toOpenAIMessage),
@@ -95,6 +108,27 @@ export async function streamOpenRouter(
   const decoder = new TextDecoder();
   let buffer = "";
 
+  const startedAt = Date.now();
+  let firstTokenAt: number | null = null;
+  const stats: ChatStats = {
+    promptTokens: 0,
+    responseTokens: 0,
+    ttftMs: null,
+    evalMs: 0,
+    totalMs: 0,
+    rounds: 1,
+  };
+  /**
+   * OpenRouter meldet keine reine Generierungszeit. Als evalMs zählt deshalb
+   * die Zeit ab dem ersten Token — das ist die Spanne, über die tok/s
+   * überhaupt aussagekräftig ist.
+   */
+  function finish(): void | Promise<void> {
+    stats.totalMs = Date.now() - startedAt;
+    stats.evalMs = firstTokenAt === null ? 0 : Date.now() - firstTokenAt;
+    return cb.onStats?.(stats);
+  }
+
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
@@ -107,6 +141,7 @@ export async function streamOpenRouter(
       if (!line.startsWith("data:")) continue;
       const payload = line.slice(5).trim();
       if (payload === "[DONE]") {
+        await finish();
         cb.onDone();
         return;
       }
@@ -116,6 +151,7 @@ export async function streamOpenRouter(
           finish_reason?: string | null;
         }[];
         error?: { message?: string };
+        usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       try {
         chunk = JSON.parse(payload);
@@ -123,14 +159,24 @@ export async function streamOpenRouter(
         continue;
       }
       if (chunk.error) throw new Error(chunk.error.message ?? "OpenRouter error");
+      if (chunk.usage) {
+        stats.promptTokens = chunk.usage.prompt_tokens ?? 0;
+        stats.responseTokens = chunk.usage.completion_tokens ?? 0;
+      }
       const delta = chunk.choices?.[0]?.delta;
+      if (delta?.reasoning || delta?.content) firstTokenAt ??= Date.now();
       if (delta?.reasoning) cb.onThinking(delta.reasoning);
       if (delta?.content) cb.onToken(delta.content);
-      if (chunk.choices?.[0]?.finish_reason && !delta?.content) {
+      // Der usage-Block kommt erst nach dem finish_reason-Chunk. Nur wenn er
+      // schon da ist, darf hier abgekürzt werden — sonst bis [DONE] weiterlesen
+      // und die Tokenzahlen mitnehmen.
+      if (chunk.choices?.[0]?.finish_reason && !delta?.content && stats.promptTokens) {
+        await finish();
         cb.onDone();
         return;
       }
     }
   }
+  await finish();
   cb.onDone();
 }

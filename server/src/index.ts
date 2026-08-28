@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as dbmod from "./db.js";
 import * as mem from "./memory.js";
-import { streamChat, type OllamaOptions } from "./ollama.js";
+import { streamChat, type ChatStats, type OllamaOptions } from "./ollama.js";
 import { transcribeAudio, synthesizeSpeech, MAX_AUDIO_BYTES } from "./voice.js";
 import {
   streamOpenRouter,
@@ -44,6 +44,37 @@ const MODEL = process.env.MODEL ?? "qwen3.5:latest";
 const CONFIRM_TIMEOUT_MS = 120_000;
 /** Chats pro Minute und Verbindung. Bremst Schleifen und OpenRouter-Kosten. */
 const CHAT_LIMIT_PER_MIN = 30;
+
+/**
+ * Effektive Kontextlänge eines geladenen Ollama-Modells.
+ *
+ * Nicht dasselbe wie die im Modell deklarierte Länge: qwen3.5 meldet 262144,
+ * geladen läuft es je nach Ollama-Default aber mit 4096. Für einen ehrlichen
+ * Füllstand zählt nur, womit das Modell tatsächlich läuft — und das steht in
+ * /api/ps. Kurz gecacht, weil sich das nur beim Nachladen ändert.
+ */
+const CONTEXT_TTL_MS = 30_000;
+const contextCache = new Map<string, { value: number; at: number }>();
+
+async function effectiveContextLength(model: string): Promise<number | undefined> {
+  const hit = contextCache.get(model);
+  if (hit && Date.now() - hit.at < CONTEXT_TTL_MS) return hit.value;
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/ps`);
+    if (!res.ok) return hit?.value;
+    const data = (await res.json()) as {
+      models?: { name?: string; model?: string; context_length?: number }[];
+    };
+    const entry = (data.models ?? []).find(
+      (m) => m.name === model || m.model === model,
+    );
+    if (!entry?.context_length) return hit?.value;
+    contextCache.set(model, { value: entry.context_length, at: Date.now() });
+    return entry.context_length;
+  } catch {
+    return hit?.value;
+  }
+}
 
 const DREAM_IDLE_MS = 180_000;
 const DREAM_BATCH = 10;
@@ -541,6 +572,24 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
       },
       onToolConfirm(name: string, args: Record<string, unknown>) {
         return confirmTool(assistantRow.id, name, args);
+      },
+      async onStats(stats: ChatStats) {
+        // Nur bei Ollama kennt der Server das echte Fenster; bei OpenRouter
+        // steht die Kontextlänge in der Modellliste, die der Client schon hat.
+        const contextLength =
+          opts.provider === "ollama"
+            ? await effectiveContextLength(opts.model)
+            : undefined;
+        socket.send(
+          JSON.stringify({
+            type: "stats",
+            messageId: assistantRow.id,
+            model: opts.provider === "ollama" ? opts.model : opts.openrouterModel,
+            provider: opts.provider,
+            contextLength,
+            ...stats,
+          }),
+        );
       },
     };
 
