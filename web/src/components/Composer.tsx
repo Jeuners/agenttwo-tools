@@ -105,6 +105,51 @@ async function readAsTextAttachment(file: File): Promise<TextAttachment> {
   };
 }
 
+/**
+ * Icons als SVG statt Emoji.
+ *
+ * 🎙 und 📎 sind in den Emoji-Fonts fest grau eingefärbt — `color` greift bei
+ * ihnen nicht. Damit blieben auch die Zustandsfarben unten wirkungslos
+ * (Aufnahme rot, Transkription orange): sie färbten nur den Rahmen. Als SVG
+ * mit `currentColor` zieht die Farbe wieder durch.
+ */
+const ICON = {
+  width: 18,
+  height: 18,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.8,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+
+function MicIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <rect x="9" y="2.5" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0" />
+      <path d="M12 18v3M8.5 21h7" />
+    </svg>
+  );
+}
+
+function RecordIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <circle cx="12" cy="12" r="5.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function ClipIcon() {
+  return (
+    <svg {...ICON} aria-hidden="true">
+      <path d="M21.44 11.05l-9.19 9.19a5.5 5.5 0 0 1-7.78-7.78l9.19-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a1.5 1.5 0 0 1-2.12-2.12l8.49-8.49" />
+    </svg>
+  );
+}
+
 export function Composer({
   streaming,
   disabled,
@@ -311,7 +356,7 @@ export function Composer({
           }
           disabled={transcribing || disabled}
         >
-          {recording ? "●" : transcribing ? "…" : "🎙"}
+          {recording ? <RecordIcon /> : transcribing ? "…" : <MicIcon />}
         </button>
 
         <button
@@ -320,7 +365,7 @@ export function Composer({
           disabled={disabled}
           title="Bild oder Textdatei anhängen (auch per Einfügen oder Drag & Drop)"
         >
-          📎
+          <ClipIcon />
         </button>
         <input
           ref={fileRef}

@@ -127,9 +127,17 @@ export function ChatMessage({
         ) : null
       ) : (
         <div className="msg-content markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-            {message.content || "▍"}
-          </ReactMarkdown>
+          {message.content ? (
+            <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+              {message.content}
+            </ReactMarkdown>
+          ) : (
+            // Noch kein Token da. Der Cursor blinkt, damit die Wartezeit — bei
+            // kaltem Modell mehrere Sekunden — nicht wie ein Stillstand wirkt.
+            <span className="stream-caret" role="status" aria-label="Antwort wird erzeugt">
+              ▍
+            </span>
+          )}
         </div>
       )}
     </div>
