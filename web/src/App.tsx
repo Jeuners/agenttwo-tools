@@ -157,10 +157,10 @@ export default function App() {
     : chat.options.model.replace(/:latest$/, "")) ?? "qwen3";
 
   const handleSend = useCallback(
-    (text: string, images: string[] = []) => {
+    (text: string, images: string[] = [], files: { name: string; content: string; encoding?: string }[] = []) => {
       voice.cancelSpeech();
       pendingSpeechRef.current = "";
-      chat.sendMessage(text, images);
+      chat.sendMessage(text, images, files);
     },
     [chat, voice],
   );

@@ -12,7 +12,15 @@ export interface Message {
   thinking: string | null;
   /** JSON-Array mit base64-Bilddaten, wie es der Server speichert. */
   images: string | null;
+  /** JSON-Array mit Text-Datei-Anhängen ({name, content}), wie es der Server speichert. */
+  files: string | null;
   created_at: number;
+}
+
+export interface ChatFile {
+  name: string;
+  content: string;
+  encoding?: string;
 }
 
 /** Werkzeugaufruf während einer Antwort. Nur zur Laufzeit, nicht gespeichert. */

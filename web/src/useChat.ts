@@ -177,9 +177,9 @@ export function useChat() {
   }, []);
 
   const sendMessage = useCallback(
-    (content: string, images: string[] = []) => {
-      // Ein Bild ohne Text ist eine gültige Anfrage.
-      if ((!content.trim() && images.length === 0) || streamingRef.current || !activeId) {
+    (content: string, images: string[] = [], files: { name: string; content: string; encoding?: string }[] = []) => {
+      // Ein Bild oder eine Datei allein ist eine gültige Anfrage.
+      if ((!content.trim() && images.length === 0 && files.length === 0) || streamingRef.current || !activeId) {
         return;
       }
       streamingRef.current = true;
@@ -189,6 +189,7 @@ export function useChat() {
         sessionId: activeId,
         content,
         images,
+        files,
         options,
         systemPrompt,
       });

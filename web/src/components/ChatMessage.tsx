@@ -27,6 +27,22 @@ function imagesOf(message: Message): string[] {
   }
 }
 
+/** Der Server legt Text-Datei-Anhänge als JSON-Array {name, content} ab. */
+function filesOf(message: Message): { name: string; content: string }[] {
+  if (!message.files) return [];
+  try {
+    const parsed: unknown = JSON.parse(message.files);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((f) => {
+      const o = f as { name?: unknown; content?: unknown };
+      if (typeof o?.name !== "string" || typeof o?.content !== "string") return [];
+      return [{ name: o.name, content: o.content }];
+    });
+  } catch {
+    return [];
+  }
+}
+
 export function ChatMessage({
   message,
   toolEvents = [],
@@ -39,6 +55,7 @@ export function ChatMessage({
   const [showThinking, setShowThinking] = useState(false);
   const isUser = message.role === "user";
   const images = imagesOf(message);
+  const chatFiles = filesOf(message);
 
   return (
     <div className={`msg ${isUser ? "msg-user" : "msg-assistant"}`}>
@@ -86,6 +103,20 @@ export function ChatMessage({
               alt={`Anhang ${i + 1}`}
               loading="lazy"
             />
+          ))}
+        </div>
+      )}
+
+      {chatFiles.length > 0 && (
+        <div className="msg-files">
+          {chatFiles.map((f) => (
+            <span
+              className="file-chip"
+              key={f.name}
+              title={`${f.content.length.toLocaleString("de-DE")} Zeichen`}
+            >
+              📄 {f.name} · {Math.max(1, Math.round(f.content.length / 1024))} kB
+            </span>
           ))}
         </div>
       )}

@@ -23,12 +23,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id, created_at);
 `);
 
-// Bestehende Datenbanken aus agenttwo kennen die Spalte noch nicht.
+// Bestehende Datenbanken aus agenttwo kennen die Spalten noch nicht.
 const hasImages = (
   db.prepare("PRAGMA table_info(messages)").all() as unknown as { name: string }[]
 ).some((c) => c.name === "images");
 if (!hasImages) {
   db.exec("ALTER TABLE messages ADD COLUMN images TEXT");
+}
+const hasFiles = (
+  db.prepare("PRAGMA table_info(messages)").all() as unknown as { name: string }[]
+).some((c) => c.name === "files");
+if (!hasFiles) {
+  db.exec("ALTER TABLE messages ADD COLUMN files TEXT");
 }
 
 export interface SessionRow {
@@ -45,6 +51,8 @@ export interface MessageRow {
   thinking: string | null;
   /** JSON-Array mit base64-Bilddaten (ohne data:-Präfix), oder null. */
   images: string | null;
+  /** JSON-Array mit Text-Datei-Anhängen ({name, content}), oder null. */
+  files: string | null;
   created_at: number;
 }
 
@@ -92,6 +100,7 @@ export function insertMessage(
   content: string,
   thinking?: string | null,
   images?: string[] | null,
+  files?: { name: string; content: string }[] | null,
 ): MessageRow {
   const row: MessageRow = {
     id: randomUUID(),
@@ -100,10 +109,11 @@ export function insertMessage(
     content,
     thinking: thinking ?? null,
     images: images?.length ? JSON.stringify(images) : null,
+    files: files?.length ? JSON.stringify(files) : null,
     created_at: Date.now(),
   };
   db.prepare(
-    "INSERT INTO messages (id, session_id, role, content, thinking, images, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO messages (id, session_id, role, content, thinking, images, files, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     row.id,
     row.session_id,
@@ -111,6 +121,7 @@ export function insertMessage(
     row.content,
     row.thinking,
     row.images,
+    row.files,
     row.created_at,
   );
   return row;
@@ -122,6 +133,24 @@ export function parseImages(row: Pick<MessageRow, "images">): string[] {
   try {
     const parsed: unknown = JSON.parse(row.images);
     return Array.isArray(parsed) ? parsed.filter((i): i is string => typeof i === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Text-Datei-Anhänge einer Zeile als Array — leer, wenn keine oder unlesbar. */
+export function parseFiles(
+  row: Pick<MessageRow, "files">,
+): { name: string; content: string }[] {
+  if (!row.files) return [];
+  try {
+    const parsed: unknown = JSON.parse(row.files);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((f) => {
+      const o = f as { name?: unknown; content?: unknown };
+      if (typeof o?.name !== "string" || typeof o?.content !== "string") return [];
+      return [{ name: o.name, content: o.content }];
+    });
   } catch {
     return [];
   }

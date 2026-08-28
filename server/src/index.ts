@@ -15,6 +15,7 @@ import {
 } from "./openrouter.js";
 import { ALLOWED_ORIGINS, isOriginAllowed, createRateLimiter } from "./security.js";
 import { validateImages, ImageError, MAX_WS_PAYLOAD } from "./images.js";
+import { prepareFiles, FileError, fileBlock } from "./files.js";
 import { toolNames } from "./tools/index.js";
 
 // simple .env loader (project root)
@@ -81,6 +82,7 @@ app.addHook("onRequest", async (req, reply) => {
 
 const sttLimiter = createRateLimiter(10, 60_000);
 const ttsLimiter = createRateLimiter(30, 60_000);
+const dreamLimiter = createRateLimiter(4, 60_000);
 
 app.addContentTypeParser(
   ["application/octet-stream", "audio/*", "video/*"],
@@ -145,6 +147,9 @@ app.get("/api/sessions/:id/memory", async (req, reply) => {
 });
 
 app.post("/api/sessions/:id/dream", async (req, reply) => {
+  if (!dreamLimiter(req.ip)) {
+    return reply.code(429).send({ error: "Zu viele Anfragen" });
+  }
   const { id } = req.params as { id: string };
   if (!dbmod.getSession(id)) return reply.code(404).send({ error: "not found" });
   const result = await mem.dream(id, { ollamaUrl: OLLAMA_URL, model: MODEL });
@@ -153,6 +158,9 @@ app.post("/api/sessions/:id/dream", async (req, reply) => {
 });
 
 app.post("/api/sessions/:id/memory/rebuild", async (req, reply) => {
+  if (!dreamLimiter(req.ip)) {
+    return reply.code(429).send({ error: "Zu viele Anfragen" });
+  }
   const { id } = req.params as { id: string };
   if (!dbmod.getSession(id)) return reply.code(404).send({ error: "not found" });
   const result = mem.rebuildMemory(id);
@@ -351,36 +359,57 @@ wss.on("connection", (socket: WebSocket, _req: IncomingMessage) => {
       return;
     }
 
-    // Ein Bild allein ist eine gültige Anfrage — Text darf dann fehlen.
-    if (!sessionId || (!content && images.length === 0)) {
+    let chatFiles: { name: string; content: string }[];
+    try {
+      chatFiles = await prepareFiles(msg.files);
+    } catch (err) {
+      socket.send(
+        JSON.stringify({
+          type: "error",
+          error: err instanceof FileError ? err.message : "Datei abgelehnt",
+        }),
+      );
+      return;
+    }
+
+    // Ein Bild oder eine Datei allein ist eine gültige Anfrage — Text darf dann fehlen.
+    if (!sessionId || (!content && images.length === 0 && chatFiles.length === 0)) {
       socket.send(JSON.stringify({ type: "error", error: "sessionId/content fehlt" }));
       return;
     }
 
     let session = dbmod.getSession(sessionId);
     if (!session) session = dbmod.createSession();
-    dbmod.renameSessionIfDefault(session.id, content || "Bild");
+    dbmod.renameSessionIfDefault(
+      session.id,
+      content || chatFiles.map((f) => f.name).join(", ") || "Bild",
+    );
 
-    const userMsg = dbmod.insertMessage(session.id, "user", content, null, images);
+    const userMsg = dbmod.insertMessage(session.id, "user", content, null, images, chatFiles);
     mem.appendEvent(session.id, "message", {
       role: "user",
       content,
       images: images.length,
+      files: chatFiles.map((f) => ({ name: f.name, chars: f.content.length })),
     });
     socket.send(JSON.stringify({ type: "user-message", message: userMsg }));
     broadcast({ type: "sessions-changed" });
 
     const opts = parseOptions(msg.options);
     opts.sessionId = session.id;
-    const history = dbmod
-      .listMessages(session.id)
-      .slice(-opts.memorySteps)
-      .map((m) => {
-        const imgs = dbmod.parseImages(m);
-        return imgs.length
-          ? { role: m.role, content: m.content, images: imgs }
-          : { role: m.role, content: m.content };
-      });
+    const history = dbmod.listMessages(session.id).slice(-opts.memorySteps).map((m) => {
+      const imgs = dbmod.parseImages(m);
+      let text = m.content;
+      const msgFiles = dbmod.parseFiles(m);
+      if (msgFiles.length) {
+        text = (text ? text + "\n\n" : "") + msgFiles.map((f) => fileBlock(f.name, f.content)).join("\n\n");
+      }
+      const base: { role: string; content: string; images?: string[] } = {
+        role: m.role,
+        content: text,
+      };
+      return imgs.length ? { ...base, images: imgs } : base;
+    });
 
     const userSystem =
       typeof msg.systemPrompt === "string" && msg.systemPrompt.trim()

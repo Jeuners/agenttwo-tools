@@ -23,6 +23,7 @@ npm-Workspace mit zwei Paketen:
 
 ## Voraussetzungen
 
+- **macOS** mit [Homebrew](https://brew.sh)
 - **Node.js 22+** — `server/src/db.ts` nutzt das eingebaute `node:sqlite`,
   das es unter Node 20 noch nicht gibt. Unter Node 22 erscheint beim Start
   eine `ExperimentalWarning`; ab Node 24 ist das Modul stabil.
@@ -31,6 +32,22 @@ npm-Workspace mit zwei Paketen:
 - `whisper-cli` im `PATH` (whisper.cpp) inklusive Modell
 - Piper als **Python-Modul** — der Server ruft `python3 -m piper` auf,
   nicht das gleichnamige Homebrew-Binary
+
+## Schnellstart (Mac)
+
+Ein Befehl von null bis zur lauffähigen App — das Skript prüft alle
+Abhängigkeiten und bietet fehlende (Homebrew, Node, ffmpeg, whisper, Piper,
+Ollama, Modell, Sprachdateien) zur Installation an:
+
+```bash
+git clone https://github.com/Jeuners/agenttwo-tools.git
+cd agenttwo-tools
+./setup.sh          # oder: npm run setup
+npm run dev         # → http://localhost:5174
+```
+
+Nur prüfen ohne etwas zu ändern: `./setup.sh --check` · Ohne Nachfragen:
+`./setup.sh --yes`
 
 Unter macOS:
 

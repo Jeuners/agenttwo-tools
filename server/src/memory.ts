@@ -103,6 +103,9 @@ export function appendEvent(
   type: "message" | "tool_call",
   payload: Record<string, unknown>,
 ): number {
+  if (typeof payload.content === "string") {
+    payload = { ...payload, content: payload.content.slice(0, 20_000) };
+  }
   const res = db
     .prepare(
       "INSERT INTO memory_events (session_id, type, payload, created_at) VALUES (?, ?, ?, ?)",
