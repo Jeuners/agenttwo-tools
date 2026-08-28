@@ -154,6 +154,7 @@ sich das in den Einstellungen.
 | `list_files` | Verzeichnis auflisten |
 | `remember` | Wichtigen Punkt als gepinnten Ankerpunkt ins Gedächtnis schreiben |
 | `recall` | Gedächtnis (Ankerpunkte) durchsuchen |
+| `read_webpage` | Öffentliche Website laden, Hauptinhalt als Markdown |
 
 Aktuelle Liste: `curl -s http://localhost:8788/api/tools`
 
@@ -205,10 +206,16 @@ Endpunkte: `GET /api/sessions/:id/memory`, `POST /api/sessions/:id/dream`,
 ### Grenzen
 
 Alle Werkzeuge sind **ausschließlich lesend**. Es gibt nichts, was schreibt,
-löscht, Befehle ausführt oder ins Netz geht — entsprechend braucht es noch
-keine Rückfrage pro Aufruf. Das Feld `requiresConfirmation` in
+löscht oder Befehle ausführt — entsprechend braucht es noch keine
+Rückfrage pro Aufruf. Das Feld `requiresConfirmation` in
 `tools/types.ts` ist bereits vorgesehen, damit die Bestätigungspflicht nicht
 nachträglich eingezogen werden muss, sobald ein schreibendes Werkzeug dazukommt.
+
+Ausnahme Netzwerk: `read_webpage` lädt öffentliche Websites. Der Abruf ist
+geguardet — nur http/https, private Adressbereiche werden nach DNS-Auflösung
+abgewiesen (SSRF-Schutz, auch über Weiterleitungen), 15 s Zeitlimit, 2 MB
+Fetch-Limit, 25 kB Output-Cap. Der Inhalt wird dem Modell als nicht
+vertrauenswürdig markiert (Prompt-Injection aus Webseiten).
 
 Der Dateizugriff liegt in einer Sandbox: Jeder Pfad wird über `realpath`
 aufgelöst (löst auch Symlinks auf) und muss danach unterhalb der Wurzel liegen,

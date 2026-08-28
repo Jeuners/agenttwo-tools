@@ -3,6 +3,7 @@ import { calculateTool } from "./calculate.js";
 import { readFileTool, listFilesTool } from "./files.js";
 import { rememberTool } from "./remember.js";
 import { recallTool } from "./recall.js";
+import { readWebpageTool } from "./web.js";
 import type { Tool, ToolCall, ToolContext, ToolResult } from "./types.js";
 import { ToolError } from "./types.js";
 
@@ -21,6 +22,7 @@ const REGISTRY: Tool[] = [
   listFilesTool,
   rememberTool,
   recallTool,
+  readWebpageTool,
 ];
 
 const BY_NAME = new Map(REGISTRY.map((t) => [t.name, t]));
